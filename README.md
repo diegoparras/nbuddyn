@@ -334,6 +334,13 @@ workflow definitions. Each group of findings lists up to 250; the count is alway
 Sessions, users, the audit log, saved settings and the history live in the data
 directory and survive restarts and updates.
 
+## Releases
+
+Versions are listed in the [changelog](CHANGELOG.md). Images are tagged by version
+(`ghcr.io/diegoparras/nbuddyn:0.15.0`) and `latest`, signed, and carry a bill of
+materials. How to verify one, how to report a vulnerability, and what an attacker who
+took over nbuddyn would and would not get, are in [SECURITY.md](SECURITY.md).
+
 ## Development
 
 ```bash

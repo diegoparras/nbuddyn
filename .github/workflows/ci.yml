@@ -112,6 +112,9 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # What went into the image and how it was built travel with it.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - name: Keep the digest for the next job
@@ -132,8 +135,11 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      # `contents: write` creates the release for a version tag; `id-token`
+      # lets the image be signed as this workflow, with no stored key.
+      contents: write
       packages: write
+      id-token: write
     steps:
       - name: Image name in lowercase
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -164,3 +170,20 @@ jobs:
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "$IMAGE@sha256:%s " *)
       - run: docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the image
+        run: |
+          digest=$(docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}" --format '{{ json .Manifest }}' | jq -r .digest)
+          cosign sign --yes "$IMAGE@$digest"
+      - uses: actions/checkout@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create the release from the changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section of the changelog for this version, without its heading.
+          awk -v v="## $version" '$0 == v {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md
+          printf '\n\nImage: `%s:%s`, for linux/amd64 and linux/arm64, signed with cosign.\n' "$IMAGE" "$version" >> notes.md
+          gh release create "$GITHUB_REF_NAME" --title "nbuddyn $version" --notes-file notes.md
