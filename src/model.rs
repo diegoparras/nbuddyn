@@ -24,6 +24,8 @@ pub struct Workflow {
     pub nodes: Vec<Node>,
     /// Changes whenever the saved definition changes.
     pub print: u64,
+    /// True once the workflow was checked and its nodes' parameters dropped.
+    pub lightened: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -68,6 +70,8 @@ pub struct Snapshot {
     /// Who saved the current version of each workflow, by workflow id, where
     /// n8n keeps it and nbuddyn may read it.
     pub authors: std::collections::HashMap<String, String>,
+    /// What the checks found in the workflows that were lightened on the way in.
+    pub workflow_findings: Vec<crate::radar::Finding>,
 }
 
 impl Workflow {
@@ -105,7 +109,18 @@ impl Workflow {
             has_error_workflow,
             nodes,
             print: fingerprint(&[nodes_json, settings_json.unwrap_or_default()]),
+            lightened: false,
         }
+    }
+
+    /// Drops what only the checks need: the parameters of every node, by far
+    /// the largest part of a workflow. A big instance does not fit in memory
+    /// with all of them loaded at once.
+    pub fn lighten(&mut self) {
+        for node in &mut self.nodes {
+            node.params = Value::Null;
+        }
+        self.lightened = true;
     }
 }
 

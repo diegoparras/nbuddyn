@@ -610,9 +610,19 @@ impl Store {
     }
 
     /// Replaces the file in one step, so a crash never leaves half a history.
+    #[cfg(test)]
     pub fn save(&self, history: &History) -> Result<(), String> {
-        let text = serde_json::to_string(history).map_err(|e| e.to_string())?;
-        write_atomically(&self.dir, &self.file(), text.as_bytes())
+        self.write(&Self::encode(history)?)
+    }
+
+    /// The history as it goes to disk. Separate from writing it, so the
+    /// history is only held for as long as this takes.
+    pub fn encode(history: &History) -> Result<String, String> {
+        serde_json::to_string(history).map_err(|e| e.to_string())
+    }
+
+    pub fn write(&self, encoded: &str) -> Result<(), String> {
+        write_atomically(&self.dir, &self.file(), encoded.as_bytes())
             .map_err(|e| format!("cannot write {}: {e}", self.file().display()))
     }
 }

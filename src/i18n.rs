@@ -746,6 +746,7 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub list_cut: &'static str,
     pub certain: &'static str,
     pub likely: &'static str,
     pub certain_help: &'static str,
@@ -1400,6 +1401,11 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        list_cut: lang.pick(
+            "{n} more are not listed. Search to find a specific one, or use the API.",
+            "Hay {n} más sin listar. Buscá para encontrar uno puntual, o usá la API.",
+            "Há mais {n} não listados. Busque para achar um específico, ou use a API.",
         ),
         certain: lang.pick(
             "Verified",

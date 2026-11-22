@@ -315,6 +315,25 @@ docker run --rm -e NBUDDYN_DATABASE_URL=postgres://nbuddyn:password@n8n_postgres
 It says what it could read. If a grant is missing it prints the exact `GRANT` to run; if
 the database is not one it knows, it says so instead of guessing.
 
+## How big an n8n it can watch
+
+Measured on every release against a real n8n database with 5,000 workflows of 20 nodes
+each and one million executions:
+
+| | |
+|---|---|
+| A full scan | about 4 seconds |
+| Memory at its peak | about 165 MB |
+| The report the page loads | about 180 KB |
+
+A typical instance, with tens or a few hundred workflows, stays under 30 MB. Give
+nbuddyn 64 MB for those and 256 MB for instances in the thousands. Workflows are read
+and checked in pages of 200, so memory follows the size of the history, not of the
+workflow definitions. Each group of findings lists up to 250; the count is always whole.
+
+Sessions, users, the audit log, saved settings and the history live in the data
+directory and survive restarts and updates.
+
 ## Development
 
 ```bash

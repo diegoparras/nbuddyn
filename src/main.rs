@@ -287,8 +287,6 @@ async fn main() -> ExitCode {
 /// settings change. A failed scan keeps the previous result on screen and
 /// records why the new one failed.
 async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
-    // Loaded on the first scan that can read them, then kept between scans.
-    let mut histories: HashMap<String, History> = HashMap::new();
     // Scans in a row that could not read each instance, to alert on the third
     // and again when it comes back.
     let mut failures: HashMap<String, u32> = HashMap::new();
@@ -296,25 +294,19 @@ async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
     let mut alerted: HashMap<String, u64> = HashMap::new();
     loop {
         let effective = state.effective().await;
-        histories.retain(|id, _| effective.instances.iter().any(|i| i.id == *id));
         for instance in &effective.instances {
             let runtime = state.runtime(&instance.id).await;
             let store = data_dir
                 .as_deref()
                 .map(|dir| history::Store::new(dir, &instance.id));
-            let mut history = histories.remove(&instance.id);
             let scanned = scan_once(
                 &state,
                 &runtime,
                 instance,
                 store.as_ref(),
-                &mut history,
                 effective.history_days,
             )
             .await;
-            if let Some(history) = history {
-                histories.insert(instance.id.clone(), history);
-            }
             let failed_before = failures.get(&instance.id).copied().unwrap_or(0);
             let message = match scanned {
                 Ok((scan, mut events)) => {
@@ -402,7 +394,6 @@ async fn scan_once(
     runtime: &Runtime,
     instance: &Instance,
     store: Option<&history::Store>,
-    history: &mut Option<History>,
     history_days: u32,
 ) -> Result<(Scan, Vec<history::Event>), String> {
     let source = db::connect(&instance.database_url, instance.timezone.as_deref()).await?;
@@ -444,7 +435,7 @@ async fn scan_once(
         let outcome = remember(
             &source,
             store,
-            history,
+            &runtime.history,
             &snapshot,
             &mut scan,
             &accepted,
@@ -462,7 +453,6 @@ async fn scan_once(
             }
         };
         *runtime.history_error.write().await = outcome;
-        *runtime.history.write().await = history.clone().map(Arc::new);
     }
     Ok((scan, events))
 }
@@ -471,41 +461,53 @@ async fn scan_once(
 /// finished since the last one, the score, and what changed. The history also
 /// adds to the scan what only it can know: workflows that stopped running.
 ///
-/// The copy in memory only moves forward once the file is written, so a scan
-/// that cannot save is repeated by the next one instead of being lost.
+/// The history is changed where it is kept, never copied: on a big instance
+/// it is the largest thing nbuddyn holds. If writing it fails it is still
+/// right in memory, and the next scan writes it again.
 async fn remember(
     source: &db::Source,
     store: &history::Store,
-    history: &mut Option<History>,
+    history: &RwLock<Option<History>>,
     snapshot: &Snapshot,
     scan: &mut Scan,
     accepted: &[settings::Accepted],
     keep_days: u32,
 ) -> Result<Vec<history::Event>, String> {
-    let mut next = match history {
-        Some(history) => history.clone(),
-        None => store.load()?,
+    // Read from disk the first time, and again after a failed load.
+    if history.read().await.is_none() {
+        let loaded = store.load()?;
+        *history.write().await = Some(loaded);
+    }
+    let (cursor, pending) = match history.read().await.as_ref() {
+        Some(history) => (history.cursor, history.pending.clone()),
+        None => (0, Vec::new()),
     };
-    let delta = source.read_executions(next.cursor, &next.pending).await?;
+    // The slow part, reading n8n, happens without holding the history.
+    let delta = source.read_executions(cursor, &pending).await?;
     let today = delta.today.clone();
-    next.record_runs(delta);
 
-    scan.findings
-        .extend(radar::silent_workflows(&snapshot.workflows, &next.quiet()));
-    radar::sort(&mut scan.findings);
-
-    // The history keeps the score people see: without what they accepted.
-    let score = web::score_without_accepted(&scan.findings, accepted);
-    next.record_score(&today, score, keep_days);
-    let events = next.observe(
-        scan.generated_at,
-        &scan.findings,
-        &snapshot.workflows,
-        &snapshot.authors,
-        keep_days,
-    );
-    store.save(&next)?;
-    *history = Some(next);
+    let (events, encoded) = {
+        let mut guard = history.write().await;
+        let history = guard.get_or_insert_with(History::default);
+        history.record_runs(delta);
+        scan.findings.extend(radar::silent_workflows(
+            &snapshot.workflows,
+            &history.quiet(),
+        ));
+        radar::sort(&mut scan.findings);
+        // The history keeps the score people see: without what they accepted.
+        let score = web::score_without_accepted(&scan.findings, accepted);
+        history.record_score(&today, score, keep_days);
+        let events = history.observe(
+            scan.generated_at,
+            &scan.findings,
+            &snapshot.workflows,
+            &snapshot.authors,
+            keep_days,
+        );
+        (events, history::Store::encode(history)?)
+    };
+    store.write(&encoded)?;
     Ok(events)
 }
 

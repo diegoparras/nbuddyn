@@ -871,7 +871,7 @@
           h("span", "pill " + g.severity, sevLabel(ui, g.severity)),
           h("h3", null, g.title),
           h("span", { class: "tag sure " + g.certainty, title: ui[g.certainty + "_help"], text: ui[g.certainty] }),
-          h("span", "tag", items.length),
+          h("span", "tag", query ? items.length : g.count),
           h("span", "chev", icon("chevron"))));
         if (isOpen) {
           var all = state.expanded[id] || state.printing || items.length <= 8;
@@ -889,6 +889,7 @@
           var gbody = h("div", "gbody", h("div", "advice", h("b", null, ui.what_to_do), h("span", null, g.advice)),
             g.caveat ? h("div", "advice caveat", h("b", null, ui.caveat_label), h("span", null, g.caveat)) : null, list);
           if (items.length > 8) gbody.appendChild(h("div", "morebar", h("button", { type: "button", class: "linkbtn", text: all ? ui.show_less : ui.show_all + " (" + items.length + ")", on: { click: function () { state.expanded[id] = !all; renderFindings(); } } })));
+          if (g.count > g.items.length && !query) gbody.appendChild(h("div", "morebar", h("span", "hint", ui.list_cut.replace("{n}", num(g.count - g.items.length)))));
           card.appendChild(gbody);
         }
         body.appendChild(card);

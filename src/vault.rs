@@ -181,9 +181,15 @@ mod tests {
             .open_value(&sealed)
             .unwrap_err()
             .contains("NBUDDYN_SECRET_KEY"));
+        // One character changed in the middle is one or two bytes changed.
+        let middle = PREFIX.len() + 10;
+        let swapped = if sealed.as_bytes()[middle] == b'A' {
+            "B"
+        } else {
+            "A"
+        };
         let mut tampered = sealed.clone();
-        tampered.pop();
-        tampered.push('A');
+        tampered.replace_range(middle..=middle, swapped);
         assert!(vault.open_value(&tampered).is_err());
     }
 

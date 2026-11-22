@@ -17,6 +17,7 @@ use crate::history::write_atomically;
 
 const USERS_FILE: &str = "users.json";
 const AUDIT_FILE: &str = "audit.json";
+const SESSIONS_FILE: &str = "sessions.json";
 
 /// Rounds of PBKDF2-HMAC-SHA256 for new passwords. Stored with each hash, so
 /// raising it later does not break existing ones.
@@ -47,7 +48,7 @@ pub enum Role {
 }
 
 /// Who a request comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
     pub name: String,
     pub role: Role,
@@ -85,6 +86,9 @@ pub struct AuditEntry {
     pub detail: String,
 }
 
+/// An open session. Kept by the hash of its token, in memory and on disk, so
+/// neither holds anything a thief could present as a session.
+#[derive(Clone, Serialize, Deserialize)]
 struct Session {
     identity: Identity,
     expires: u64,
@@ -130,12 +134,16 @@ impl Auth {
         let audit = read(AUDIT_FILE)
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default();
+        // Sessions outlive a restart, so updating nbuddyn signs nobody out.
+        let sessions: HashMap<String, Session> = read(SESSIONS_FILE)
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
         Self {
             env_user,
             env_password,
             dir,
             users: Mutex::new(users),
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(sessions),
             tries: Mutex::new(HashMap::new()),
             audit: Mutex::new(audit),
         }
@@ -237,24 +245,35 @@ impl Auth {
         let mut sessions = lock(&self.sessions);
         sessions.retain(|_, s| s.expires > now);
         sessions.insert(
-            token.clone(),
+            token_hash(&token),
             Session {
                 identity,
                 expires: now + SESSION_SECONDS,
             },
         );
+        self.keep_sessions(&sessions);
         token
     }
 
     pub fn session(&self, token: &str, now: u64) -> Option<Identity> {
         lock(&self.sessions)
-            .get(token)
+            .get(&token_hash(token))
             .filter(|s| s.expires > now)
             .map(|s| s.identity.clone())
     }
 
     pub fn close_session(&self, token: &str) {
-        lock(&self.sessions).remove(token);
+        let mut sessions = lock(&self.sessions);
+        sessions.remove(&token_hash(token));
+        self.keep_sessions(&sessions);
+    }
+
+    /// Writes the open sessions down, when there is somewhere to. Failing to
+    /// only costs a new sign-in after the next restart.
+    fn keep_sessions(&self, sessions: &HashMap<String, Session>) {
+        if self.dir.is_some() {
+            let _ = self.write(SESSIONS_FILE, sessions);
+        }
     }
 
     /// Seconds a session lasts, for the cookie.
@@ -313,7 +332,9 @@ impl Auth {
             return false;
         }
         *users = next;
-        lock(&self.sessions).retain(|_, s| !s.identity.name.eq_ignore_ascii_case(name));
+        let mut sessions = lock(&self.sessions);
+        sessions.retain(|_, s| !s.identity.name.eq_ignore_ascii_case(name));
+        self.keep_sessions(&sessions);
         true
     }
 
@@ -368,6 +389,12 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// What a session is filed under: a token cannot be worked back from it.
+fn token_hash(token: &str) -> String {
+    use sha2::Digest;
+    hex(&Sha256::digest(token.as_bytes()))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -468,6 +495,19 @@ mod tests {
         assert!(auth.session(&token, 11).is_some());
         assert!(auth.session(&token, 10 + SESSION_SECONDS).is_none());
         assert!(auth.session("not-a-token", 11).is_none());
+        // The session survives a restart, and the file does not hold the token.
+        let restarted = super::Auth::new(
+            "nbuddyn".into(),
+            Some("env-secret".into()),
+            Some(dir.clone()),
+        );
+        assert_eq!(
+            restarted.session(&token, 11).map(|w| w.name),
+            Some("ana".to_owned())
+        );
+        assert!(!std::fs::read_to_string(dir.join(SESSIONS_FILE))
+            .unwrap()
+            .contains(&token));
         assert!(auth.remove_user("ANA"));
         assert!(auth.session(&token, 11).is_none());
         assert!(!auth.remove_user("ana"));

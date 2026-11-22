@@ -90,7 +90,9 @@ pub struct Runtime {
     pub last_error: RwLock<Option<String>>,
     /// Why Redis could not be read in the latest scan, if it could not.
     pub cluster_error: RwLock<Option<String>>,
-    pub history: RwLock<Option<Arc<History>>>,
+    /// One copy, changed in place by the scanner and read in place by the
+    /// page: a long history is too big to hand around.
+    pub history: RwLock<Option<History>>,
     /// Why the history could not be updated in the latest scan, if it could not.
     pub history_error: RwLock<Option<String>>,
 }
@@ -298,13 +300,8 @@ async fn read_activity(
     let span = u64::from(days.unwrap_or(7).clamp(1, MAX_SPAN));
     let (effective, instance) = state.pick(instance).await;
     let lang = lang.unwrap_or(effective.lang);
-    let history = state
-        .runtime(&instance.id)
-        .await
-        .history
-        .read()
-        .await
-        .clone();
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await;
     let events = history
         .iter()
         .flat_map(|h| h.events_since(now().saturating_sub(span * DAY)))
@@ -404,13 +401,8 @@ async fn history_csv(
 ) -> Response {
     let span = q.days.unwrap_or(DEFAULT_SPAN).clamp(1, 3650);
     let (_, instance) = state.pick(q.instance.as_deref()).await;
-    let history = state
-        .runtime(&instance.id)
-        .await
-        .history
-        .read()
-        .await
-        .clone();
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await;
     let mut csv = String::from("day,workflow,succeeded,failed,canceled,average_ms,slowest_ms\n");
     for row in history.iter().flat_map(|h| h.rows(span)) {
         let average = if row.counts.timed > 0 {
@@ -457,14 +449,9 @@ async fn history_export(
         return StatusCode::FORBIDDEN.into_response();
     }
     let (_, instance) = state.pick(q.instance.as_deref()).await;
-    let history = state
-        .runtime(&instance.id)
-        .await
-        .history
-        .read()
-        .await
-        .clone();
-    let Some(history) = history else {
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await;
+    let Some(history) = history.as_ref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let file = history::Store::file_name(&instance.id);
@@ -476,7 +463,7 @@ async fn history_export(
                 format!("attachment; filename=\"{file}\""),
             ),
         ],
-        Json(&*history).into_response(),
+        Json(history).into_response(),
     )
         .into_response()
 }
@@ -501,12 +488,12 @@ async fn read_history(
     let span = days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
     let (_, instance) = state.pick(instance).await;
     let runtime = state.runtime(&instance.id).await;
-    let history = runtime.history.read().await.clone();
+    let history = runtime.history.read().await;
     let error = runtime.history_error.read().await.clone();
     HistoryReport {
         enabled: state.history_enabled,
         error,
-        view: history.map(|h| h.view(span)).unwrap_or_default(),
+        view: history.as_ref().map(|h| h.view(span)).unwrap_or_default(),
     }
 }
 
@@ -582,6 +569,7 @@ async fn read_report(state: &AppState, lang: Option<Lang>, instance: Option<&str
     let scan = runtime.latest.read().await.clone();
     let error = runtime.last_error.read().await.clone();
     let cluster_error = runtime.cluster_error.read().await.clone();
+    let history = runtime.history.read().await;
     let extras = Extras {
         accepted: state.saved.read().await.accepted_in(&instance.id).to_vec(),
         n8n_url: instance.n8n_url.clone(),
@@ -592,7 +580,7 @@ async fn read_report(state: &AppState, lang: Option<Lang>, instance: Option<&str
             id: instance.id.clone(),
             name: instance.name.clone(),
         },
-        history: runtime.history.read().await.clone(),
+        history: history.as_ref(),
         now: now(),
     };
     compose_report(
@@ -833,7 +821,7 @@ async fn report(
 
 /// What a report needs besides the scan.
 #[derive(Default)]
-struct Extras {
+struct Extras<'a> {
     accepted: Vec<Accepted>,
     n8n_url: String,
     writable: bool,
@@ -841,7 +829,7 @@ struct Extras {
     instance: InstanceRef,
     instances: Vec<InstanceSummary>,
     /// For telling which findings are new and what changed lately.
-    history: Option<Arc<History>>,
+    history: Option<&'a History>,
     now: u64,
 }
 
@@ -900,7 +888,7 @@ fn compose_report(
     scan: Option<Scan>,
     error: Option<String>,
     cluster_error: Option<String>,
-    extras: &Extras,
+    extras: &Extras<'_>,
 ) -> Report {
     let available = scan.is_some();
     let mut scan = scan.unwrap_or_default();
@@ -980,7 +968,7 @@ fn compose_report(
 
     let mut groups = group(lang, scan.findings);
     let mut changes = None;
-    if let Some(history) = &extras.history {
+    if let Some(history) = extras.history {
         for item in groups.iter_mut().flat_map(|g| &mut g.items) {
             item.since = history.since(&item.key);
         }
@@ -1057,9 +1045,15 @@ fn group(lang: Lang, findings: Vec<Finding>) -> Vec<Group> {
     for g in &mut groups {
         g.count = g.items.len();
         g.title = i18n::group_title(lang, g.check, g.count);
+        // A group can hold thousands on a big instance. The count stays
+        // whole; the list is cut so the page stays light.
+        g.items.truncate(ITEMS_MAX);
     }
     groups
 }
+
+/// The most findings of one group a report lists.
+const ITEMS_MAX: usize = 250;
 
 impl Item {
     fn of(f: Finding) -> Self {

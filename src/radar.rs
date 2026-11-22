@@ -170,15 +170,11 @@ static INTERNAL_HOST: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Runs every check and returns findings ordered by severity.
 pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for wf in snapshot.workflows.iter().filter(|w| !w.archived) {
-        if wf.active && !wf.has_error_workflow {
-            findings.push(on_workflow("no_error_workflow", Severity::Medium, wf));
-        }
-        for node in wf.nodes.iter().filter(|n| !n.disabled) {
-            check_node(wf, node, &mut findings);
-        }
+    // Workflows read from a database arrive already checked and lightened;
+    // anything else is checked here.
+    let mut findings = snapshot.workflow_findings.clone();
+    for wf in snapshot.workflows.iter().filter(|w| !w.lightened) {
+        findings.extend(check_workflow(wf));
     }
 
     for e in snapshot
@@ -271,6 +267,21 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
     }
 
     sort(&mut findings);
+    findings
+}
+
+/// Everything that can be said about one workflow from its definition alone.
+pub fn check_workflow(wf: &Workflow) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    if wf.archived {
+        return findings;
+    }
+    if wf.active && !wf.has_error_workflow {
+        findings.push(on_workflow("no_error_workflow", Severity::Medium, wf));
+    }
+    for node in wf.nodes.iter().filter(|n| !n.disabled) {
+        check_node(wf, node, &mut findings);
+    }
     findings
 }
 

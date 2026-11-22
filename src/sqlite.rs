@@ -68,19 +68,25 @@ pub fn read_snapshot(path: &Path) -> Result<Snapshot, String> {
 }
 
 fn snapshot(conn: &Connection) -> rusqlite::Result<Snapshot> {
+    // Checked and lightened one by one, so memory never holds every
+    // definition at once.
+    let mut workflow_findings = Vec::new();
     let workflows = conn
         .prepare(r#"select id, name, active, "isArchived", nodes, settings from workflow_entity"#)?
         .query_map([], |r| {
             let nodes: Option<String> = r.get(4)?;
             let settings: Option<String> = r.get(5)?;
-            Ok(Workflow::from_raw(
+            let mut workflow = Workflow::from_raw(
                 r.get(0)?,
                 r.get(1)?,
                 r.get(2)?,
                 r.get(3)?,
                 nodes.as_deref().unwrap_or("[]"),
                 settings.as_deref(),
-            ))
+            );
+            workflow_findings.extend(crate::radar::check_workflow(&workflow));
+            workflow.lighten();
+            Ok(workflow)
         })?
         .collect::<rusqlite::Result<_>>()?;
 
@@ -164,6 +170,7 @@ fn snapshot(conn: &Connection) -> rusqlite::Result<Snapshot> {
         runners: Vec::new(),
         authors,
         workflows,
+        workflow_findings,
         credentials,
         error_counts,
         stuck,

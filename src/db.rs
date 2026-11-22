@@ -10,6 +10,7 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 
 use crate::history::{Outcome, Tally};
 use crate::model::{Credential, ErrorCount, Snapshot, StuckExecution, Workflow};
+use crate::radar::{self, Finding};
 use crate::sqlite;
 use crate::tls::{self, PostgresTls, Trust};
 
@@ -302,11 +303,13 @@ async fn pg_connect(database_url: &str, timezone: Option<&str>) -> Result<Client
 }
 
 async fn pg_snapshot(client: &Client) -> Result<Snapshot, DbError> {
+    let (workflows, workflow_findings) = workflows(client).await?;
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
         authors: authors(client).await,
-        workflows: workflows(client).await?,
+        workflows,
+        workflow_findings,
         credentials: credentials(client).await?,
         error_counts: error_counts(client).await?,
         stuck: stuck(client).await?,
@@ -327,29 +330,45 @@ async fn pg_snapshot(client: &Client) -> Result<Snapshot, DbError> {
     })
 }
 
-async fn workflows(client: &Client) -> Result<Vec<Workflow>, DbError> {
-    let rows = client
-        .query(
-            r#"select name::text, active, "isArchived", nodes::text, settings::text, id::text
-               from workflow_entity"#,
-            &[],
-        )
-        .await?;
-    Ok(rows
-        .iter()
-        .map(|r| {
+/// Workflows read at a time. Each is checked and lightened before the next
+/// page is asked for, so memory holds one page of definitions, not all.
+const PAGE: i64 = 200;
+
+async fn workflows(client: &Client) -> Result<(Vec<Workflow>, Vec<Finding>), DbError> {
+    let mut workflows = Vec::new();
+    let mut findings = Vec::new();
+    let mut after = String::new();
+    loop {
+        let rows = client
+            .query(
+                r#"select name::text, active, "isArchived", nodes::text, settings::text, id::text
+                   from workflow_entity
+                   where id::text > $1
+                   order by id::text
+                   limit $2"#,
+                &[&after, &PAGE],
+            )
+            .await?;
+        for r in &rows {
             let nodes: String = r.get(3);
             let settings: Option<String> = r.get(4);
-            Workflow::from_raw(
+            let mut workflow = Workflow::from_raw(
                 r.get(5),
                 r.get(0),
                 r.get(1),
                 r.get(2),
                 &nodes,
                 settings.as_deref(),
-            )
-        })
-        .collect())
+            );
+            findings.extend(radar::check_workflow(&workflow));
+            workflow.lighten();
+            workflows.push(workflow);
+        }
+        match rows.last() {
+            Some(last) if rows.len() as i64 == PAGE => after = last.get(5),
+            _ => return Ok((workflows, findings)),
+        }
+    }
 }
 
 /// Optional: needs two more grants than the rest. Without them the change log
