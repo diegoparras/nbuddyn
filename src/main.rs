@@ -9,6 +9,7 @@ mod model;
 mod radar;
 mod runners;
 mod settings;
+mod sqlite;
 mod web;
 
 use std::env;
@@ -43,8 +44,10 @@ impl Config {
     fn from_env() -> Result<Self, String> {
         let var = |name: &str| env::var(name).ok().filter(|v| !v.trim().is_empty());
 
-        let database_url = var("NBUDDYN_DATABASE_URL")
-            .ok_or("NBUDDYN_DATABASE_URL is required (a read-only Postgres user is recommended)")?;
+        let database_url = var("NBUDDYN_DATABASE_URL").ok_or(
+            "NBUDDYN_DATABASE_URL is required: postgres://user:password@host:5432/n8n \
+                 (a read-only user is recommended) or sqlite:/path/to/database.sqlite",
+        )?;
 
         let password = var("NBUDDYN_PASSWORD");
         let anonymous = var("NBUDDYN_ALLOW_ANONYMOUS").is_some_and(|v| v == "true");
@@ -144,7 +147,7 @@ async fn main() -> ExitCode {
         user: config.user.clone(),
         password: config.password.clone(),
         mcp_token: config.mcp_token.clone(),
-        database: describe_database(&config.database_url),
+        database: db::label(&config.database_url),
         defaults: config.defaults,
         saved: RwLock::new(saved),
         settings_store,
@@ -189,13 +192,6 @@ async fn main() -> ExitCode {
     }
 }
 
-/// `host/database` of a Postgres address, without the user or the password.
-fn describe_database(url: &str) -> String {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let rest = rest.rsplit_once('@').map_or(rest, |(_, location)| location);
-    rest.split(['?', '#']).next().unwrap_or_default().to_owned()
-}
-
 /// Scans on start, then on every interval or as soon as the settings change.
 /// A failed scan keeps the previous result on screen and records why the new
 /// one failed.
@@ -218,8 +214,7 @@ async fn scan_forever(state: Arc<AppState>, database_url: String, store: Option<
                 *state.latest.write().await = Some(scan);
                 *state.last_error.write().await = None;
             }
-            Err(e) => {
-                let reason = db::describe(&e);
+            Err(reason) => {
                 eprintln!("scan failed: {reason}");
                 *state.last_error.write().await = Some(reason);
             }
@@ -237,9 +232,9 @@ async fn scan_once(
     effective: &Effective,
     store: Option<&history::Store>,
     history: &mut Option<History>,
-) -> Result<Scan, db::DbError> {
-    let client = db::connect(database_url, effective.timezone.as_deref()).await?;
-    let mut snapshot = db::read_snapshot(&client).await?;
+) -> Result<Scan, String> {
+    let source = db::connect(database_url, effective.timezone.as_deref()).await?;
+    let mut snapshot = source.read_snapshot().await?;
 
     // The database is the report; Redis adds the cluster to it. A Redis that
     // cannot be read is reported without losing the rest.
@@ -263,7 +258,7 @@ async fn scan_once(
     if let Some(store) = store {
         // The history keeps the score people see: without what they accepted.
         let score = web::score_without_accepted(&scan.findings, &*state.saved.read().await);
-        let outcome = remember(&client, store, history, score, effective.history_days).await;
+        let outcome = remember(&source, store, history, score, effective.history_days).await;
         if let Err(reason) = &outcome {
             eprintln!("history not updated: {reason}");
         }
@@ -277,7 +272,7 @@ async fn scan_once(
 /// result. The copy in memory only moves forward once the file is written, so
 /// a scan that cannot save is repeated by the next one instead of being lost.
 async fn remember(
-    client: &tokio_postgres::Client,
+    source: &db::Source,
     store: &history::Store,
     history: &mut Option<History>,
     score: u32,
@@ -287,9 +282,7 @@ async fn remember(
         Some(history) => history.clone(),
         None => store.load()?,
     };
-    let delta = db::read_executions(client, next.cursor, &next.pending)
-        .await
-        .map_err(|e| db::describe(&e))?;
+    let delta = source.read_executions(next.cursor, &next.pending).await?;
     next.record(delta, score, keep_days);
     store.save(&next)?;
     *history = Some(next);

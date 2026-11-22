@@ -10,6 +10,9 @@ RUN cargo build --release --locked
 RUN mkdir /data
 
 FROM scratch
+LABEL org.opencontainers.image.source="https://github.com/diegoparras/nbuddyn" \
+      org.opencontainers.image.description="A tiny, read-only cockpit for self-hosted n8n" \
+      org.opencontainers.image.licenses="MIT"
 COPY --from=build /src/target/release/nbuddyn /nbuddyn
 COPY --from=build --chown=65534:65534 /data /data
 ENV NBUDDYN_DATA_DIR=/data

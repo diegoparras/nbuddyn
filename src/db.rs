@@ -1,16 +1,104 @@
-//! Reads a snapshot from n8n's Postgres. The session is switched to read-only
-//! before the first query, so nbuddyn cannot change n8n even by mistake.
+//! Reads from n8n's database: Postgres over the network, or the SQLite file
+//! n8n uses when it is given no database. Either way the session can only
+//! read, so nbuddyn cannot change n8n even by mistake.
+
+use std::path::PathBuf;
 
 use tokio_postgres::{Client, NoTls};
 
 use crate::history::{Outcome, Tally};
 use crate::model::{Credential, ErrorCount, Snapshot, StuckExecution, Workflow};
+use crate::sqlite;
 
-pub type DbError = tokio_postgres::Error;
+type DbError = tokio_postgres::Error;
+
+/// An open way to read n8n's database.
+pub enum Source {
+    Postgres(Client),
+    /// The file is opened again for every read, so nothing is held between scans.
+    Sqlite(PathBuf),
+}
+
+/// The path in `sqlite:/path/to/database.sqlite`, or `None` for anything else.
+pub fn sqlite_path(database_url: &str) -> Option<PathBuf> {
+    let rest = database_url.strip_prefix("sqlite:")?;
+    // `sqlite:///data/x` and `sqlite:/data/x` both mean `/data/x`.
+    let path = match rest.strip_prefix("//") {
+        Some(absolute) => absolute,
+        None => rest,
+    };
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+/// `host/database` or the file's path, without the user or the password.
+pub fn label(database_url: &str) -> String {
+    if let Some(path) = sqlite_path(database_url) {
+        return path.display().to_string();
+    }
+    let rest = database_url
+        .split_once("://")
+        .map_or(database_url, |(_, rest)| rest);
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, location)| location);
+    rest.split(['?', '#']).next().unwrap_or_default().to_owned()
+}
+
+/// Opens a session that can only read. `timezone`, when given, decides where
+/// one day ends and the next begins; SQLite has no time zones and always cuts
+/// days in UTC.
+pub async fn connect(database_url: &str, timezone: Option<&str>) -> Result<Source, String> {
+    match sqlite_path(database_url) {
+        Some(path) => Ok(Source::Sqlite(path)),
+        None => pg_connect(database_url, timezone)
+            .await
+            .map(Source::Postgres)
+            .map_err(|e| describe(&e)),
+    }
+}
+
+impl Source {
+    pub async fn read_snapshot(&self) -> Result<Snapshot, String> {
+        match self {
+            Source::Postgres(client) => pg_snapshot(client).await.map_err(|e| describe(&e)),
+            Source::Sqlite(path) => {
+                let path = path.clone();
+                blocking(move || sqlite::read_snapshot(&path)).await
+            }
+        }
+    }
+
+    /// Reads the executions above `cursor`, plus the ones in `pending` that
+    /// were unfinished last time. Everything is read at one instant, so an
+    /// execution that finishes meanwhile is counted exactly once: now or on
+    /// the next read.
+    pub async fn read_executions(
+        &self,
+        cursor: i64,
+        pending: &[i64],
+    ) -> Result<ExecutionDelta, String> {
+        match self {
+            Source::Postgres(client) => pg_executions(client, cursor, pending)
+                .await
+                .map_err(|e| describe(&e)),
+            Source::Sqlite(path) => {
+                let (path, pending) = (path.clone(), pending.to_vec());
+                blocking(move || sqlite::read_executions(&path, cursor, &pending)).await
+            }
+        }
+    }
+}
+
+/// SQLite reads block, so they run off the async threads.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|_| "the database read did not finish".to_owned())?
+}
 
 /// The server's own message when there is one ("password authentication failed
 /// for user ..."), instead of the driver's generic "db error".
-pub fn describe(error: &DbError) -> String {
+fn describe(error: &DbError) -> String {
     match error.as_db_error() {
         Some(db) => db.message().to_owned(),
         None => {
@@ -26,9 +114,7 @@ pub fn describe(error: &DbError) -> String {
     }
 }
 
-/// Opens a session that can only read. `timezone`, when given, decides where
-/// one day ends and the next begins.
-pub async fn connect(database_url: &str, timezone: Option<&str>) -> Result<Client, DbError> {
+async fn pg_connect(database_url: &str, timezone: Option<&str>) -> Result<Client, DbError> {
     let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
     // The connection object drives the socket; it ends when the client is dropped.
     tokio::spawn(async move {
@@ -46,7 +132,7 @@ pub async fn connect(database_url: &str, timezone: Option<&str>) -> Result<Clien
     Ok(client)
 }
 
-pub async fn read_snapshot(client: &Client) -> Result<Snapshot, DbError> {
+async fn pg_snapshot(client: &Client) -> Result<Snapshot, DbError> {
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
@@ -186,12 +272,9 @@ pub struct ExecutionDelta {
 }
 
 /// How many unfinished executions are remembered between scans.
-const UNFINISHED_MAX: i64 = 5000;
+pub const UNFINISHED_MAX: i64 = 5000;
 
-/// Reads the executions above `cursor`, plus the ones in `pending` that were
-/// unfinished last time. Everything is read at one instant, so an execution
-/// that finishes meanwhile is counted exactly once: now or on the next read.
-pub async fn read_executions(
+async fn pg_executions(
     client: &Client,
     cursor: i64,
     pending: &[i64],
@@ -274,4 +357,33 @@ async fn executions(
         finished,
         unfinished,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_addresses_are_told_from_postgres_ones() {
+        let path = |url| sqlite_path(url).map(|p| p.display().to_string());
+        assert_eq!(
+            path("sqlite:///home/node/.n8n/database.sqlite").as_deref(),
+            Some("/home/node/.n8n/database.sqlite")
+        );
+        assert_eq!(
+            path("sqlite:/n8n/database.sqlite").as_deref(),
+            Some("/n8n/database.sqlite")
+        );
+        assert_eq!(path("sqlite:"), None);
+        assert_eq!(path("postgres://u:p@host/n8n"), None);
+    }
+
+    #[test]
+    fn the_label_never_shows_the_user_or_the_password() {
+        assert_eq!(
+            label("postgres://nbuddyn:s3cret@n8n_postgres:5432/n8n?sslmode=disable"),
+            "n8n_postgres:5432/n8n"
+        );
+        assert_eq!(label("sqlite:/n8n/database.sqlite"), "/n8n/database.sqlite");
+    }
 }

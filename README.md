@@ -6,7 +6,7 @@ nbuddyn sits next to your n8n, reads its database and its Redis, checks its task
 which doors are open, what is failing in silence, and what will break.
 
 - **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n; the only things it writes are its own files.
-- **One binary.** About 2 MB, a few MB of memory, no other services to install.
+- **One binary.** A few MB on disk and in memory, no other services to install.
 - **Three languages.** English, Spanish and Portuguese, selectable on the page.
 
 nbuddyn is an independent project. It is not affiliated with or endorsed by n8n GmbH.
@@ -104,7 +104,25 @@ inside the workflow still shows as unauthenticated, because nbuddyn cannot see t
 
 ## Run it
 
-Create a read-only user in n8n's Postgres (once):
+nbuddyn reads either database n8n can use.
+
+**If your n8n uses SQLite** (the default when n8n is given no database), give nbuddyn
+n8n's data folder, read-only, and point it at the file:
+
+```bash
+docker run -d --name nbuddyn -p 8787:8787 \
+  -v n8n_data:/n8n:ro \
+  -v nbuddyn_data:/data \
+  -e NBUDDYN_DATABASE_URL=sqlite:/n8n/database.sqlite \
+  -e NBUDDYN_PASSWORD=choose-a-login-password \
+  ghcr.io/diegoparras/nbuddyn:latest
+```
+
+`n8n_data` is the volume your n8n mounts at `/home/node/.n8n`. nbuddyn opens the file
+read-only and never blocks n8n. Two things differ from Postgres: days are cut in UTC,
+and the file can be read only while n8n is running.
+
+**If your n8n uses Postgres**, create a read-only user in it (once):
 
 ```sql
 CREATE ROLE nbuddyn LOGIN PASSWORD 'choose-a-password';
@@ -117,25 +135,23 @@ GRANT SELECT (disabled, "mfaEnabled") ON "user" TO nbuddyn;
 These grants cover only the columns nbuddyn reads. The role cannot read stored
 credentials, password hashes or execution data.
 
-Build and run:
-
-```bash
-docker build -t nbuddyn .
-```
+Then run the published image (`linux/amd64` and `linux/arm64`):
 
 ```bash
 docker run -d --name nbuddyn -p 8787:8787 \
   -e NBUDDYN_DATABASE_URL=postgres://nbuddyn:choose-a-password@n8n_postgres:5432/n8n \
   -e NBUDDYN_PASSWORD=choose-a-login-password \
   -v nbuddyn_data:/data \
-  nbuddyn
+  ghcr.io/diegoparras/nbuddyn:latest
 ```
+
+To build it yourself instead: `docker build -t nbuddyn .`
 
 Open `http://localhost:8787` and log in as `nbuddyn`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `NBUDDYN_DATABASE_URL` | required | Connection to n8n's Postgres. Use a read-only user. |
+| `NBUDDYN_DATABASE_URL` | required | n8n's database: `postgres://user:password@host:5432/n8n` (use a read-only user) or `sqlite:/path/to/database.sqlite`. |
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
 | `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
@@ -163,8 +179,8 @@ nbuddyn on the same private network as them. `GET /healthz` answers without a lo
 
 ## Status
 
-One page, two JSON endpoints (`/api/report?lang=es` and `/api/history?days=30`) and an MCP endpoint (`/mcp`). Tested against the n8n 3.3 database
-schema and a Redis 7 server. Planned next: alerts.
+One page, two JSON endpoints (`/api/report?lang=es` and `/api/history?days=30`) and an MCP endpoint (`/mcp`). Tested against n8n 3.3 on
+Postgres, n8n 2.48 on SQLite, and Redis 8. Planned next: alerts.
 
 ## Development
 
@@ -182,20 +198,22 @@ MIT. See [LICENSE](LICENSE).
 
 **Una cabina mínima, de solo lectura, para n8n autoalojado.**
 
-nbuddyn se instala al lado de tu n8n, lee su base de datos y te dice lo que n8n no te dice:
+nbuddyn se instala al lado de tu n8n, lee su base de datos (Postgres o SQLite) y te dice lo que n8n no te dice:
 qué puertas están abiertas, qué está fallando en silencio y qué se va a romper.
 
 - **Solo lectura.** Pone su sesión de base de datos en modo lectura antes de la primera consulta. No puede modificar tu n8n.
-- **Un solo binario.** Unos 2 MB, pocos MB de memoria, sin otros servicios que instalar.
+- **Un solo binario.** Pocos MB en disco y en memoria, sin otros servicios que instalar.
 - **Tres idiomas.** Inglés, español y portugués, elegibles en la página.
 
 nbuddyn es un proyecto independiente, sin relación con n8n GmbH. No contiene código de n8n
 y no desbloquea, reemplaza ni elude ninguna función licenciada de n8n.
 
-**Uso:** creá un usuario de solo lectura en el Postgres de n8n con el SQL de arriba, construí
-la imagen con `docker build -t nbuddyn .` y arrancala con `NBUDDYN_DATABASE_URL` y
-`NBUDDYN_PASSWORD`. Entrá a `http://localhost:8787` con el usuario `nbuddyn`. Para que la
-página abra en español por defecto, agregá `NBUDDYN_LANG=es`.
+**Uso:** si tu n8n usa SQLite, montá su carpeta de datos en solo lectura y poné
+`NBUDDYN_DATABASE_URL=sqlite:/n8n/database.sqlite`. Si usa Postgres, creá un usuario de solo
+lectura con el SQL de arriba. Después arrancá la imagen `ghcr.io/diegoparras/nbuddyn:latest`
+con `NBUDDYN_DATABASE_URL` y `NBUDDYN_PASSWORD`, como en los ejemplos de arriba. Entrá a
+`http://localhost:8787` con el usuario `nbuddyn`. El resto se configura desde el botón
+**Ajustes** de la página.
 
 Los chequeos leen la definición guardada de cada workflow. Un webhook que valida a quien
 llama dentro del workflow igual aparece como sin autenticación, porque nbuddyn no ve esa lógica.
@@ -206,20 +224,22 @@ llama dentro del workflow igual aparece como sin autenticación, porque nbuddyn 
 
 **Uma cabine mínima, somente leitura, para n8n auto-hospedado.**
 
-O nbuddyn fica ao lado do seu n8n, lê o banco de dados e mostra o que o n8n não mostra:
+O nbuddyn fica ao lado do seu n8n, lê o banco de dados (Postgres ou SQLite) e mostra o que o n8n não mostra:
 quais portas estão abertas, o que está falhando em silêncio e o que vai quebrar.
 
 - **Somente leitura.** Coloca a sessão do banco em modo leitura antes da primeira consulta. Não pode alterar o seu n8n.
-- **Um único binário.** Cerca de 2 MB, poucos MB de memória, sem outros serviços para instalar.
+- **Um único binário.** Poucos MB em disco e em memória, sem outros serviços para instalar.
 - **Três idiomas.** Inglês, espanhol e português, selecionáveis na página.
 
 O nbuddyn é um projeto independente, sem relação com a n8n GmbH. Não contém código do n8n
 e não desbloqueia, substitui nem contorna nenhum recurso licenciado do n8n.
 
-**Uso:** crie um usuário somente leitura no Postgres do n8n com o SQL acima, construa a
-imagem com `docker build -t nbuddyn .` e inicie com `NBUDDYN_DATABASE_URL` e
-`NBUDDYN_PASSWORD`. Acesse `http://localhost:8787` com o usuário `nbuddyn`. Para abrir a
-página em português por padrão, adicione `NBUDDYN_LANG=pt`.
+**Uso:** se o seu n8n usa SQLite, monte a pasta de dados dele em somente leitura e defina
+`NBUDDYN_DATABASE_URL=sqlite:/n8n/database.sqlite`. Se usa Postgres, crie um usuário somente
+leitura com o SQL acima. Depois inicie a imagem `ghcr.io/diegoparras/nbuddyn:latest` com
+`NBUDDYN_DATABASE_URL` e `NBUDDYN_PASSWORD`, como nos exemplos acima. Acesse
+`http://localhost:8787` com o usuário `nbuddyn`. O resto é configurado pelo botão
+**Configurações** da página.
 
 As verificações leem a definição salva de cada workflow. Um webhook que valida quem chama
 dentro do workflow ainda aparece como sem autenticação, porque o nbuddyn não vê essa lógica.
