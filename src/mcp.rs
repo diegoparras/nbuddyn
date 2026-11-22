@@ -173,11 +173,7 @@ async fn call(state: &AppState, params: &Value) -> Result<Value, (i64, String)> 
         .and_then(Value::as_str)
         .ok_or((INVALID_PARAMS, "missing tool name".to_owned()))?;
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-    let lang = args
-        .get("lang")
-        .and_then(Value::as_str)
-        .map(Lang::parse)
-        .unwrap_or(state.default_lang);
+    let lang = args.get("lang").and_then(Value::as_str).map(Lang::parse);
 
     let answer = match name {
         "get_status" => status(web::current_report(state, lang).await),

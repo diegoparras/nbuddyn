@@ -16,6 +16,7 @@ pub struct Node {
 
 #[derive(Debug, Clone, Default)]
 pub struct Workflow {
+    pub id: String,
     pub name: String,
     pub active: bool,
     pub archived: bool,
@@ -32,6 +33,8 @@ pub struct Credential {
 
 #[derive(Debug, Clone, Default)]
 pub struct ErrorCount {
+    /// Empty when the execution names no workflow.
+    pub workflow_id: String,
     pub workflow: String,
     pub errors: i64,
     pub last: String,
@@ -40,6 +43,7 @@ pub struct ErrorCount {
 #[derive(Debug, Clone, Default)]
 pub struct StuckExecution {
     pub id: String,
+    pub workflow_id: String,
     pub workflow: String,
     pub status: String,
     pub since: String,
@@ -64,6 +68,7 @@ pub struct Snapshot {
 impl Workflow {
     /// Builds a workflow from the raw `nodes` and `settings` JSON stored by n8n.
     pub fn from_raw(
+        id: String,
         name: String,
         active: bool,
         archived: bool,
@@ -88,6 +93,7 @@ impl Workflow {
             .is_some_and(|s| !s.trim().is_empty());
 
         Self {
+            id,
             name,
             active,
             archived,

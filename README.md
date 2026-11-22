@@ -5,7 +5,7 @@
 nbuddyn sits next to your n8n, reads its database and its Redis, checks its task runners, and tells you what n8n does not:
 which doors are open, what is failing in silence, and what will break.
 
-- **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n.
+- **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n; the only things it writes are its own files.
 - **One binary.** About 2 MB, a few MB of memory, no other services to install.
 - **Three languages.** English, Spanish and Portuguese, selectable on the page.
 
@@ -65,6 +65,26 @@ n8n still has, so the history does not start empty.
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
+## Settings on the page
+
+The **Settings** button changes, without a restart: n8n's address, the default language,
+the time between scans, the time zone, how long the history is kept, the task runners and
+n8n's Redis. Environment variables give the starting values; what is saved on the page
+wins from then on and is kept in `settings.json` in the data directory. Redis' password
+is never sent back to the browser.
+
+Three things stay in the environment, because without them there is no page to change
+them from: the database connection, the page's own login, and the MCP token.
+
+With n8n's address set, every finding links to its workflow in n8n's editor.
+
+## Accepting a finding
+
+Some findings are decisions, not mistakes: a webhook that is public on purpose. **Accept**
+takes a finding out of the score, the lights and the counts, with an optional note saying
+why, and lists it apart under *Accepted*, where it can be brought back. A finding that
+gets worse (say, from important to urgent) comes back by itself.
+
 ## For AI assistants (MCP)
 
 Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
@@ -117,9 +137,10 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 |---|---|---|
 | `NBUDDYN_DATABASE_URL` | required | Connection to n8n's Postgres. Use a read-only user. |
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
+| `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |
-| `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history file lives. Mount a volume there, or the history is lost with the container. Unset outside the image, which turns the history off. |
+| `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history, the saved settings and the accepted findings live. Mount a volume there, or they are lost with the container. Unset outside the image: no history, and nothing can be saved from the page. |
 | `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
 | `NBUDDYN_TIMEZONE` | the database's | Decides where a day ends, such as `America/Argentina/Buenos_Aires`. |
 | `NBUDDYN_MCP_TOKEN` | unset | Turns on the MCP endpoint at `/mcp` and is the token clients must send. At least 24 characters. |

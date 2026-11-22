@@ -8,41 +8,35 @@ mod mcp;
 mod model;
 mod radar;
 mod runners;
+mod settings;
 mod web;
 
 use std::env;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
-use crate::cluster::RedisConfig;
-use crate::history::{History, Store};
-use crate::i18n::Lang;
+use crate::history::History;
 use crate::model::Snapshot;
-use crate::runners::RunnerTarget;
+use crate::settings::{Defaults, Effective};
 use crate::web::{AppState, Inventory, Scan};
 
+/// What only the environment can set: how to reach n8n's database, who may
+/// open the page, and where nbuddyn keeps its own files.
 struct Config {
     database_url: String,
     listen: String,
     user: String,
     password: Option<String>,
-    interval: Duration,
-    lang: Lang,
-    /// `None` leaves the queue and cluster checks out.
-    redis: Option<RedisConfig>,
-    /// Empty leaves the task runner check out.
-    runners: Vec<RunnerTarget>,
-    /// `None` leaves nbuddyn without a memory of its own.
-    data_dir: Option<String>,
-    history_days: u32,
-    /// Decides where a day ends. `None` uses the database's own time zone.
-    timezone: Option<String>,
     /// `None` leaves the MCP endpoint off.
     mcp_token: Option<String>,
+    /// `None` leaves nbuddyn without memory: no history, no saved settings.
+    data_dir: Option<String>,
+    /// Starting values for everything the page can change.
+    defaults: Defaults,
 }
 
 impl Config {
@@ -63,59 +57,13 @@ impl Config {
             );
         }
 
-        let interval = match var("NBUDDYN_INTERVAL_SECONDS") {
-            None => 300,
+        let number = |name: &str, default: u64| match var(name) {
+            None => Ok(default),
             Some(v) => v
+                .trim()
                 .parse::<u64>()
-                .ok()
-                .filter(|s| *s >= 10)
-                .ok_or("NBUDDYN_INTERVAL_SECONDS must be a number of seconds, 10 or more")?,
+                .map_err(|_| format!("{name} must be a number")),
         };
-
-        let redis = match var("NBUDDYN_REDIS_URL") {
-            None => None,
-            Some(url) => {
-                let mut redis = RedisConfig::parse(&url)?;
-                if let Some(prefix) = var("NBUDDYN_BULL_PREFIX") {
-                    redis.bull_prefix = prefix;
-                }
-                if let Some(name) = var("NBUDDYN_QUEUE_NAME") {
-                    redis.queue_name = name;
-                }
-                if let Some(prefix) = var("NBUDDYN_REDIS_KEY_PREFIX") {
-                    redis.key_prefix = prefix;
-                }
-                Some(redis)
-            }
-        };
-
-        let runners = match var("NBUDDYN_RUNNER_URLS") {
-            None => Vec::new(),
-            Some(list) => runners::parse_targets(&list)?,
-        };
-
-        let history_days = match var("NBUDDYN_HISTORY_DAYS") {
-            None => 400,
-            Some(v) => v
-                .parse::<u32>()
-                .ok()
-                .filter(|d| (1..=3650).contains(d))
-                .ok_or("NBUDDYN_HISTORY_DAYS must be a number of days between 1 and 3650")?,
-        };
-
-        let timezone = var("NBUDDYN_TIMEZONE");
-        if let Some(zone) = &timezone {
-            let valid = zone.len() <= 64
-                && zone
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '+' | '-'));
-            if !valid {
-                return Err(
-                    "NBUDDYN_TIMEZONE must be a time zone name such as America/Argentina/Buenos_Aires"
-                        .into(),
-                );
-            }
-        }
 
         let mcp_token = var("NBUDDYN_MCP_TOKEN");
         if mcp_token.as_ref().is_some_and(|t| t.len() < 24) {
@@ -126,19 +74,36 @@ impl Config {
             );
         }
 
+        let defaults = Defaults {
+            n8n_url: var("NBUDDYN_N8N_URL").unwrap_or_default(),
+            lang: var("NBUDDYN_LANG").unwrap_or_else(|| "en".into()),
+            interval_seconds: number("NBUDDYN_INTERVAL_SECONDS", 300)?,
+            timezone: var("NBUDDYN_TIMEZONE").unwrap_or_default(),
+            history_days: u32::try_from(number("NBUDDYN_HISTORY_DAYS", 400)?).unwrap_or(u32::MAX),
+            runner_urls: var("NBUDDYN_RUNNER_URLS").unwrap_or_default(),
+            redis_url: var("NBUDDYN_REDIS_URL").unwrap_or_default(),
+            bull_prefix: var("NBUDDYN_BULL_PREFIX"),
+            queue_name: var("NBUDDYN_QUEUE_NAME"),
+            redis_key_prefix: var("NBUDDYN_REDIS_KEY_PREFIX"),
+        };
+        // The same checks the page applies, so a bad variable stops the start
+        // instead of surfacing later as a scan that never works.
+        if let Err(wrong) = settings::Saved::default().resolve(&defaults) {
+            let names: Vec<String> = wrong
+                .iter()
+                .map(|field| format!("NBUDDYN_{}", field.to_ascii_uppercase()))
+                .collect();
+            return Err(format!("not valid: {}", names.join(", ")));
+        }
+
         Ok(Self {
-            mcp_token,
-            redis,
-            runners,
-            data_dir: var("NBUDDYN_DATA_DIR"),
-            history_days,
-            timezone,
             database_url,
             listen: var("NBUDDYN_LISTEN").unwrap_or_else(|| "0.0.0.0:8787".into()),
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
             password,
-            interval: Duration::from_secs(interval),
-            lang: Lang::parse(&var("NBUDDYN_LANG").unwrap_or_default()),
+            mcp_token,
+            data_dir: var("NBUDDYN_DATA_DIR"),
+            defaults,
         })
     }
 }
@@ -153,17 +118,44 @@ async fn main() -> ExitCode {
         }
     };
 
+    // Saved settings that cannot be read are left alone: nbuddyn runs on its
+    // starting values and refuses to save until someone looks at the file.
+    let store = config.data_dir.as_deref().map(settings::Store::new);
+    let (saved, settings_store, settings_error) = match store.map(|s| (s.load(), s)) {
+        None => (settings::Saved::default(), None, None),
+        Some((Ok(saved), store)) => match saved.resolve(&config.defaults) {
+            Ok(_) => (saved, Some(store), None),
+            Err(wrong) => (
+                settings::Saved::default(),
+                None,
+                Some(format!(
+                    "saved settings are not valid: {}",
+                    wrong.join(", ")
+                )),
+            ),
+        },
+        Some((Err(reason), _)) => (settings::Saved::default(), None, Some(reason)),
+    };
+    if let Some(reason) = &settings_error {
+        eprintln!("nbuddyn: {reason}; running on the starting values");
+    }
+
     let state = Arc::new(AppState {
         user: config.user.clone(),
         password: config.password.clone(),
-        default_lang: config.lang,
+        mcp_token: config.mcp_token.clone(),
+        database: describe_database(&config.database_url),
+        defaults: config.defaults,
+        saved: RwLock::new(saved),
+        settings_store,
+        settings_error,
+        rescan: Notify::new(),
         latest: RwLock::new(None),
         last_error: RwLock::new(None),
         cluster_error: RwLock::new(None),
         history_enabled: config.data_dir.is_some(),
         history: RwLock::new(None),
         history_error: RwLock::new(None),
-        mcp_token: config.mcp_token.clone(),
     });
 
     let listener = match TcpListener::bind(&config.listen).await {
@@ -181,15 +173,8 @@ async fn main() -> ExitCode {
 
     tokio::spawn(scan_forever(
         state.clone(),
-        Scanner {
-            database_url: config.database_url,
-            timezone: config.timezone,
-            redis: config.redis,
-            runners: config.runners,
-            store: config.data_dir.map(Store::new),
-            history_days: config.history_days,
-        },
-        config.interval,
+        config.database_url,
+        config.data_dir.map(history::Store::new),
     ));
 
     let served = axum::serve(listener, web::router(state))
@@ -204,29 +189,32 @@ async fn main() -> ExitCode {
     }
 }
 
-/// What a scan reads from, and where it remembers.
-struct Scanner {
-    database_url: String,
-    timezone: Option<String>,
-    redis: Option<RedisConfig>,
-    runners: Vec<RunnerTarget>,
-    store: Option<Store>,
-    history_days: u32,
+/// `host/database` of a Postgres address, without the user or the password.
+fn describe_database(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, location)| location);
+    rest.split(['?', '#']).next().unwrap_or_default().to_owned()
 }
 
-/// Scans on start and then on every interval. A failed scan keeps the previous
-/// result on screen and records why the new one failed.
-async fn scan_forever(state: Arc<AppState>, scanner: Scanner, interval: Duration) {
+/// Scans on start, then on every interval or as soon as the settings change.
+/// A failed scan keeps the previous result on screen and records why the new
+/// one failed.
+async fn scan_forever(state: Arc<AppState>, database_url: String, store: Option<history::Store>) {
     // Loaded on the first scan that can read it, then kept here between scans.
     let mut history: Option<History> = None;
     loop {
-        match scan_once(&state, &scanner, &mut history).await {
+        let effective = state.effective().await;
+        match scan_once(
+            &state,
+            &database_url,
+            &effective,
+            store.as_ref(),
+            &mut history,
+        )
+        .await
+        {
             Ok(scan) => {
-                println!(
-                    "scan ok: score {} with {} findings",
-                    scan.score,
-                    scan.findings.len()
-                );
+                println!("scan ok: {} findings", scan.findings.len());
                 *state.latest.write().await = Some(scan);
                 *state.last_error.write().await = None;
             }
@@ -236,21 +224,26 @@ async fn scan_forever(state: Arc<AppState>, scanner: Scanner, interval: Duration
                 *state.last_error.write().await = Some(reason);
             }
         }
-        tokio::time::sleep(interval).await;
+        tokio::select! {
+            () = tokio::time::sleep(effective.interval) => {}
+            () = state.rescan.notified() => {}
+        }
     }
 }
 
 async fn scan_once(
     state: &AppState,
-    scanner: &Scanner,
+    database_url: &str,
+    effective: &Effective,
+    store: Option<&history::Store>,
     history: &mut Option<History>,
 ) -> Result<Scan, db::DbError> {
-    let client = db::connect(&scanner.database_url, scanner.timezone.as_deref()).await?;
+    let client = db::connect(database_url, effective.timezone.as_deref()).await?;
     let mut snapshot = db::read_snapshot(&client).await?;
 
     // The database is the report; Redis adds the cluster to it. A Redis that
     // cannot be read is reported without losing the rest.
-    let cluster_error = match &scanner.redis {
+    let cluster_error = match &effective.redis {
         None => None,
         Some(config) => match cluster::read_cluster(config).await {
             Ok(cluster) => {
@@ -264,11 +257,13 @@ async fn scan_once(
         },
     };
     *state.cluster_error.write().await = cluster_error;
-    snapshot.runners = runners::probe_all(&scanner.runners).await;
+    snapshot.runners = runners::probe_all(&effective.runners).await;
     let scan = evaluate(&snapshot);
 
-    if let Some(store) = &scanner.store {
-        let outcome = remember(&client, store, history, scan.score, scanner.history_days).await;
+    if let Some(store) = store {
+        // The history keeps the score people see: without what they accepted.
+        let score = web::score_without_accepted(&scan.findings, &*state.saved.read().await);
+        let outcome = remember(&client, store, history, score, effective.history_days).await;
         if let Err(reason) = &outcome {
             eprintln!("history not updated: {reason}");
         }
@@ -283,7 +278,7 @@ async fn scan_once(
 /// a scan that cannot save is repeated by the next one instead of being lost.
 async fn remember(
     client: &tokio_postgres::Client,
-    store: &Store,
+    store: &history::Store,
     history: &mut Option<History>,
     score: u32,
     keep_days: u32,
@@ -307,7 +302,6 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
         generated_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
-        score: radar::score(&findings),
         inventory: Inventory {
             workflows: snapshot.workflows.len(),
             active: snapshot.workflows.iter().filter(|w| w.active).count(),

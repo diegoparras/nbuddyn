@@ -110,13 +110,49 @@
     th { font-size: 11px; letter-spacing: 0; vertical-align: bottom; }
     th.num, td.num { padding-left: 8px; }
   }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+  a:hover { color: var(--ink); text-decoration-color: var(--ink); }
+  a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .where div { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+  .where .text { flex: 1 1 160px; min-width: 0; }
+  .linkbtn { background: none; border: 0; padding: 0; min-height: 28px; color: var(--amber); font: 500 12px var(--mono); letter-spacing: 0.02em; }
+  .linkbtn:hover { text-decoration: underline; }
+  .acceptform { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+  input, textarea, select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
+  .acceptform input { flex: 1 1 200px; }
+  .solid { background: var(--amber); border: 1px solid var(--amber); color: var(--bg); padding: 0 14px; border-radius: 4px; }
+  .ghost { background: none; border: 1px solid var(--line); color: var(--soft); padding: 0 14px; border-radius: 4px; }
+  .accepted { margin-top: 30px; }
+  .accepted > summary { font: 600 13px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .accepted .note { margin: 2px 0 6px; }
+  .accepted .row { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .accepted .row .what { flex: 1 1 360px; min-width: 0; }
+  .accepted .row .where { flex: 1 1 260px; }
+  .accepted .why { color: var(--soft); font-size: 14px; }
+  .accepted .when { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0; width: min(620px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog form { padding: 22px 24px; }
+  dialog h2 { margin: 0 0 14px; color: var(--ink); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .field input, .field textarea, .field select { width: 100%; }
+  .field textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
+  .field .help { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .field .bad { font-size: 13px; color: var(--red-ink); margin-top: 4px; }
+  .field.wrong input, .field.wrong textarea, .field.wrong select { border-color: var(--red); }
+  .envonly { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 14px; font-size: 13px; color: var(--muted); }
+  .envonly div { font-family: var(--mono); overflow-wrap: anywhere; padding: 1px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 18px; }
+  .actions .status { margin-right: auto; font-size: 13px; color: var(--red-ink); }
   footer { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
 
   @media print {
     :root { --bg: #fff; --panel: #fff; --line: #c9ced6; --ink: #111827; --soft: #374151; --muted: #4b5563;
             --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff;
             --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; }
-    .langs, .export, .ranges, .tip, .morerows { display: none; }
+    .langs, .export, .ranges, .tip, .morerows, .linkbtn, .acceptform, dialog { display: none; }
+    a { text-decoration: none; }
     tr[hidden] { display: table-row; }
     figure { break-inside: avoid; }
     details[data-more] > summary { display: none; }
@@ -137,6 +173,7 @@
       <button type="button" data-lang="en">EN</button>
       <button type="button" data-lang="pt">PT</button>
     </div>
+    <button type="button" class="export" id="openSettings" hidden></button>
     <button type="button" class="export" id="export"></button>
   </header>
 
@@ -166,6 +203,7 @@
   <div class="totals" id="totals"></div>
   <div class="totals" id="cluster" hidden></div>
   <div id="groups"></div>
+  <details class="accepted" id="accepted" hidden><summary id="acceptedTitle"></summary><p class="note" id="acceptedHelp"></p><div id="acceptedRows"></div></details>
   <section id="history" hidden>
     <h2 class="plain"><span id="historyTitle"></span><div class="ranges" role="group" id="ranges"></div></h2>
     <div id="historyNotice"></div>
@@ -184,6 +222,19 @@
   </section>
   <footer id="footer"></footer>
 </main>
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" id="settingsForm" novalidate>
+    <h2 id="settingsTitle"></h2>
+    <div id="settingsNotice"></div>
+    <div id="settingsFields"></div>
+    <div class="envonly" id="envOnly"></div>
+    <div class="actions">
+      <span class="status" id="settingsStatus" role="status"></span>
+      <button type="button" class="ghost" id="settingsCancel"></button>
+      <button type="submit" class="solid" id="settingsSave"></button>
+    </div>
+  </form>
+</dialog>
 <script>
 (function () {
   "use strict";
@@ -200,11 +251,212 @@
     return node;
   }
 
+  var report = null;
+  var busy = false;
+
+  function send(path, body) {
+    return fetch(path, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Nbuddyn": "1" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return { ok: false }; });
+    });
+  }
+
+  /* "Workflow › node › detail", with the workflow as a link when n8n's address is known. */
+  function describe(item, ui) {
+    var text = el("span", "text");
+    var rest = [item.node, item.detail].filter(Boolean);
+    if (item.workflow && item.path && report && report.n8n_url) {
+      var link = el("a", null, item.workflow);
+      link.href = report.n8n_url + item.path;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.title = ui.open_in_n8n;
+      text.appendChild(link);
+    } else if (item.workflow) {
+      rest.unshift(item.workflow);
+    }
+    if (rest.length) text.appendChild(document.createTextNode((text.firstChild ? " › " : "") + rest.join(" › ")));
+    if (item.active === false) text.appendChild(el("span", "tag", ui.inactive));
+    return text;
+  }
+
   function itemLine(item, ui) {
-    var line = el("div", null, [item.workflow, item.node, item.detail].filter(Boolean).join(" › "));
-    if (item.active === false) line.appendChild(el("span", "tag", ui.inactive));
+    var line = el("div");
+    line.appendChild(describe(item, ui));
+    if (!report || !report.writable) return line;
+    var open = el("button", "linkbtn", ui.accept);
+    open.type = "button";
+    open.addEventListener("click", function () {
+      busy = true;
+      open.hidden = true;
+      var form = el("form", "acceptform");
+      var note = el("input");
+      note.type = "text";
+      note.maxLength = 300;
+      note.placeholder = ui.accept_note;
+      note.setAttribute("aria-label", ui.accept_note);
+      var ok = el("button", "solid", ui.confirm);
+      ok.type = "submit";
+      var cancel = el("button", "ghost", ui.cancel);
+      cancel.type = "button";
+      cancel.addEventListener("click", function () { form.remove(); open.hidden = false; busy = false; open.focus(); });
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        ok.disabled = true;
+        send("api/accept", { key: item.key, note: note.value }).then(function (answer) {
+          busy = false;
+          if (answer.ok) return load();
+          ok.disabled = false;
+          note.setCustomValidity(ui.save_failed);
+          note.reportValidity();
+        });
+      });
+      form.appendChild(note); form.appendChild(ok); form.appendChild(cancel);
+      line.appendChild(form);
+      note.focus();
+    });
+    line.appendChild(open);
     return line;
   }
+
+  function renderAccepted(r) {
+    var ui = r.ui, box = $("accepted");
+    box.hidden = !(r.available && r.accepted.length);
+    if (box.hidden) return;
+    $("acceptedTitle").textContent = ui.accepted + " (" + r.accepted.length + ")";
+    $("acceptedHelp").textContent = ui.accepted_help;
+    var rows = $("acceptedRows");
+    rows.replaceChildren();
+    r.accepted.forEach(function (a) {
+      var row = el("div", "row");
+      var what = el("div", "what");
+      what.appendChild(el("div", null, a.title));
+      if (a.note) what.appendChild(el("div", "why", "“" + a.note + "”"));
+      if (a.at) what.appendChild(el("div", "when", new Date(a.at * 1000).toLocaleDateString(r.lang)));
+      row.appendChild(what);
+      var where = el("div", "where");
+      var line = el("div");
+      line.appendChild(describe(a, ui));
+      if (r.writable) {
+        var restore = el("button", "linkbtn", ui.restore);
+        restore.type = "button";
+        restore.addEventListener("click", function () {
+          restore.disabled = true;
+          send("api/unaccept", { key: a.key }).then(load);
+        });
+        line.appendChild(restore);
+      }
+      where.appendChild(line);
+      row.appendChild(where);
+      rows.appendChild(row);
+    });
+  }
+
+  var FIELDS = [["n8n_url", "url"], ["lang", "select"], ["interval_seconds", "number"], ["timezone", "text"],
+                ["history_days", "number"], ["runner_urls", "area"], ["redis_url", "text"]];
+
+  function openSettings() {
+    var ui = lastUi;
+    if (!ui) return;
+    fetch("api/settings", { credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (view) {
+        busy = true;
+        $("settingsTitle").textContent = ui.settings;
+        $("settingsSave").textContent = ui.save;
+        $("settingsSave").hidden = !view.writable;
+        $("settingsCancel").textContent = ui.cancel;
+        $("settingsStatus").textContent = "";
+        var notice = $("settingsNotice");
+        notice.replaceChildren();
+        if (!view.writable) {
+          var box = el("div", "notice");
+          box.appendChild(el("div", null, ui.settings_readonly));
+          if (view.error) box.appendChild(el("div", "why", view.error));
+          box.style.margin = "0 0 16px";
+          notice.appendChild(box);
+        }
+        var fields = $("settingsFields");
+        fields.replaceChildren();
+        FIELDS.forEach(function (f) {
+          var name = f[0], wrap = el("div", "field");
+          wrap.setAttribute("data-field", name);
+          var label = el("label", null, ui["set_" + name]);
+          label.htmlFor = "set_" + name;
+          var input;
+          if (f[1] === "select") {
+            input = el("select");
+            [["en", "English"], ["es", "Español"], ["pt", "Português"]].forEach(function (o) {
+              var option = el("option", null, o[1]);
+              option.value = o[0];
+              input.appendChild(option);
+            });
+          } else if (f[1] === "area") {
+            input = el("textarea");
+            input.rows = 4;
+            input.spellcheck = false;
+          } else {
+            input = el("input");
+            input.type = f[1] === "number" ? "number" : "text";
+            if (f[1] === "url") input.inputMode = "url";
+            input.spellcheck = false;
+            input.autocomplete = "off";
+          }
+          input.id = "set_" + name;
+          input.name = name;
+          input.value = view.values[name];
+          input.disabled = !view.writable;
+          wrap.appendChild(label);
+          wrap.appendChild(input);
+          if (ui["help_" + name]) wrap.appendChild(el("div", "help", ui["help_" + name]));
+          fields.appendChild(wrap);
+        });
+        var env = $("envOnly");
+        env.replaceChildren(el("div", null, ui.env_only + ":"));
+        env.appendChild(el("div", null, ui.env_database + " · " + view.database));
+        env.appendChild(el("div", null, ui.env_mcp + " · " + (view.mcp ? ui.on : ui.off)));
+        env.appendChild(el("div", null, "nbuddyn " + view.version));
+        $("settings").showModal();
+      })
+      .catch(function (err) { console.error("nbuddyn", err); });
+  }
+
+  $("openSettings").addEventListener("click", openSettings);
+  $("settingsCancel").addEventListener("click", function () { $("settings").close(); });
+  $("settings").addEventListener("close", function () { busy = false; });
+  $("settingsForm").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var ui = lastUi, values = {};
+    FIELDS.forEach(function (f) { values[f[0]] = $("set_" + f[0]).value; });
+    $("settingsSave").disabled = true;
+    $("settingsStatus").textContent = "";
+    Array.prototype.forEach.call(document.querySelectorAll("#settingsFields .field"), function (w) {
+      w.classList.remove("wrong");
+      var old = w.querySelector(".bad");
+      if (old) old.remove();
+    });
+    send("api/settings", values).then(function (answer) {
+      $("settingsSave").disabled = false;
+      if (answer.ok) {
+        $("settings").close();
+        lang = values.lang;
+        try { localStorage.setItem("nbuddyn.lang", lang); } catch (e) {}
+        return setTimeout(load, 1500);
+      }
+      (answer.wrong || []).forEach(function (name) {
+        var w = document.querySelector('#settingsFields [data-field="' + name + '"]');
+        if (!w) return;
+        w.classList.add("wrong");
+        w.insertBefore(el("div", "bad", ui.invalid), w.querySelector(".help"));
+      });
+      var first = document.querySelector("#settingsFields .wrong input, #settingsFields .wrong textarea, #settingsFields .wrong select");
+      if (first) first.focus();
+      else $("settingsStatus").textContent = ui.save_failed + (answer.error ? ": " + answer.error : "");
+    });
+  });
 
   function setNeedle(score, available) {
     var shown = available ? Math.max(0, Math.min(100, score)) : 0;
@@ -215,6 +467,10 @@
 
   function render(r) {
     var ui = r.ui;
+    report = r;
+    $("openSettings").textContent = ui.settings;
+    $("openSettings").hidden = false;
+    renderAccepted(r);
     document.documentElement.lang = r.lang;
     $("tagline").textContent = ui.tagline;
     $("export").textContent = ui.export;
@@ -508,7 +764,12 @@
     var body = t.appendChild(el("tbody"));
     rows.forEach(function (cells) {
       var tr = body.appendChild(el("tr"));
-      cells.forEach(function (c, i) { tr.appendChild(el("td", (headers[i][1] + " " + (c[1] || "")).trim(), c[0])); });
+      cells.forEach(function (c, i) {
+        var cell = el("td", (headers[i][1] + " " + (c[1] || "")).trim());
+        if (c[0] && typeof c[0] === "object") cell.appendChild(describe({ workflow: c[0].name, path: c[0].path }, lastUi));
+        else cell.textContent = String(c[0]);
+        tr.appendChild(cell);
+      });
     });
     return t;
   }
@@ -573,7 +834,7 @@
         [[ui.col_workflow, ""], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"], [ui.col_last, "num optional"]],
         h.workflows.map(function (w) {
           var runs = (w.ok || 0) + (w.failed || 0) + (w.canceled || 0);
-          return [[w.name], [runs.toLocaleString(lang)], [(w.failed || 0).toLocaleString(lang), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
+          return [[w], [runs.toLocaleString(lang)], [(w.failed || 0).toLocaleString(lang), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
         }));
       holder.appendChild(t);
       var rows = t.querySelectorAll("tbody tr");
@@ -636,7 +897,8 @@
   });
 
   load();
-  setInterval(load, 60000);
+  /* An open form is left alone: a refresh would wipe what is being typed. */
+  setInterval(function () { if (!busy) load(); }, 60000);
 })();
 </script>
 </body>

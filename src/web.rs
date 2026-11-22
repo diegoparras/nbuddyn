@@ -10,7 +10,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 use crate::cluster::Cluster;
 use crate::history::{self, History};
@@ -18,12 +18,12 @@ use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::mcp;
 use crate::radar::{Finding, Severity};
 use crate::runners::RunnerProbe;
+use crate::settings::{self, Defaults, Effective, Saved};
 
 /// Result of the latest scan, kept in memory.
 #[derive(Debug, Clone, Default)]
 pub struct Scan {
     pub generated_at: u64,
-    pub score: u32,
     pub inventory: Inventory,
     pub findings: Vec<Finding>,
     pub cluster: Option<Cluster>,
@@ -44,7 +44,18 @@ pub struct AppState {
     pub user: String,
     /// `None` means the page is open to anyone who can reach it.
     pub password: Option<String>,
-    pub default_lang: Lang,
+    /// `host/database` of n8n's Postgres, to show which n8n is being read.
+    pub database: String,
+    /// Starting values from the environment.
+    pub defaults: Defaults,
+    /// What was saved from the page, including the accepted findings.
+    pub saved: RwLock<Saved>,
+    /// `None` when there is nowhere to save, so the page can only read.
+    pub settings_store: Option<settings::Store>,
+    /// Why saved settings were ignored at start, if they were.
+    pub settings_error: Option<String>,
+    /// Wakes the scanner so a change shows without waiting for the interval.
+    pub rescan: Notify,
     pub latest: RwLock<Option<Scan>>,
     pub last_error: RwLock<Option<String>>,
     /// Why Redis could not be read in the latest scan, if it could not.
@@ -58,11 +69,26 @@ pub struct AppState {
     pub mcp_token: Option<String>,
 }
 
+impl AppState {
+    /// The settings in force. What is saved was checked when it was saved, and
+    /// the starting values when nbuddyn started, so the fallback is never hit.
+    pub async fn effective(&self) -> Effective {
+        let saved = self.saved.read().await;
+        saved
+            .resolve(&self.defaults)
+            .or_else(|_| Saved::default().resolve(&self.defaults))
+            .expect("the starting values were checked at start")
+    }
+}
+
 pub fn router(state: Arc<AppState>) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/api/report", get(report))
         .route("/api/history", get(history_report))
+        .route("/api/settings", get(settings_view).post(settings_save))
+        .route("/api/accept", post(accept))
+        .route("/api/unaccept", post(unaccept))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -125,15 +151,28 @@ pub async fn current_history(state: &AppState, days: Option<u32>) -> serde_json:
 }
 
 /// The report as the page gets it, for the MCP tools.
-pub async fn current_report(state: &AppState, lang: Lang) -> serde_json::Value {
+pub async fn current_report(state: &AppState, lang: Option<Lang>) -> serde_json::Value {
     serde_json::to_value(read_report(state, lang).await).unwrap_or_default()
 }
 
-async fn read_report(state: &AppState, lang: Lang) -> Report {
+/// `lang` is what the reader asked for; without it the configured one is used.
+async fn read_report(state: &AppState, lang: Option<Lang>) -> Report {
+    let effective = state.effective().await;
     let scan = state.latest.read().await.clone();
     let error = state.last_error.read().await.clone();
     let cluster_error = state.cluster_error.read().await.clone();
-    build_report(lang, scan, error, cluster_error)
+    let extras = Extras {
+        saved: state.saved.read().await.clone(),
+        n8n_url: effective.n8n_url,
+        writable: state.settings_store.is_some(),
+    };
+    compose_report(
+        lang.unwrap_or(effective.lang),
+        scan,
+        error,
+        cluster_error,
+        &extras,
+    )
 }
 
 #[derive(Serialize)]
@@ -160,6 +199,12 @@ struct Report {
     #[serde(skip_serializing_if = "Option::is_none")]
     runners: Option<RunnersView>,
     groups: Vec<Group>,
+    /// Findings someone accepted: listed apart and left out of the score.
+    accepted: Vec<AcceptedView>,
+    /// Where n8n's editor is, for links. Empty when not configured.
+    n8n_url: String,
+    /// Whether findings can be accepted and settings saved.
+    writable: bool,
     ui: UiText,
 }
 
@@ -194,6 +239,19 @@ impl ClusterView {
             eviction_policy: cluster.redis.eviction_policy.clone(),
         }
     }
+}
+
+#[derive(Serialize)]
+struct AcceptedView {
+    key: String,
+    /// What the finding is, in the words of its group.
+    title: String,
+    #[serde(flatten)]
+    item: Item,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    note: String,
+    /// Seconds since 1970.
+    at: u64,
 }
 
 #[derive(Serialize)]
@@ -232,6 +290,11 @@ struct Group {
 
 #[derive(Serialize)]
 struct Item {
+    /// Identifies the finding when accepting it.
+    key: String,
+    /// Path under n8n's address where the finding can be seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workflow: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -270,22 +333,79 @@ const QUEUE_LIGHT: (&str, &[&str]) = (
 const RUNNERS_LIGHT: (&str, &[&str]) = ("runners", &["runner_down"]);
 
 async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>) -> Json<Report> {
-    let lang = q
-        .lang
-        .as_deref()
-        .map(Lang::parse)
-        .unwrap_or(state.default_lang);
+    let lang = q.lang.as_deref().map(Lang::parse);
     Json(read_report(&state, lang).await)
 }
 
+/// What a report needs besides the scan.
+#[derive(Default)]
+struct Extras {
+    saved: Saved,
+    n8n_url: String,
+    writable: bool,
+}
+
+/// The score of the findings nobody accepted.
+pub fn score_without_accepted(findings: &[Finding], saved: &Saved) -> u32 {
+    let open: Vec<Finding> = findings
+        .iter()
+        .filter(|f| !saved.is_accepted(&f.key()))
+        .cloned()
+        .collect();
+    crate::radar::score(&open)
+}
+
+fn zone_of(score: u32) -> &'static str {
+    if score < RISK_BELOW {
+        "risk"
+    } else if score < CAUTION_BELOW {
+        "caution"
+    } else {
+        "ok"
+    }
+}
+
+#[cfg(test)]
 fn build_report(
     lang: Lang,
     scan: Option<Scan>,
     error: Option<String>,
     cluster_error: Option<String>,
 ) -> Report {
+    compose_report(lang, scan, error, cluster_error, &Extras::default())
+}
+
+fn compose_report(
+    lang: Lang,
+    scan: Option<Scan>,
+    error: Option<String>,
+    cluster_error: Option<String>,
+    extras: &Extras,
+) -> Report {
     let available = scan.is_some();
-    let scan = scan.unwrap_or_default();
+    let mut scan = scan.unwrap_or_default();
+
+    // Accepted findings leave the score, the lights and the counts, and are
+    // listed apart with the note they were accepted with.
+    let (accepted, open): (Vec<Finding>, Vec<Finding>) = std::mem::take(&mut scan.findings)
+        .into_iter()
+        .partition(|f| extras.saved.is_accepted(&f.key()));
+    scan.findings = open;
+    let score = crate::radar::score(&scan.findings);
+    let accepted = accepted
+        .into_iter()
+        .map(|f| {
+            let key = f.key();
+            let decision = extras.saved.accepted.iter().find(|a| a.key == key);
+            AcceptedView {
+                title: i18n::group_title(lang, f.check, 1),
+                note: decision.map(|a| a.note.clone()).unwrap_or_default(),
+                at: decision.map_or(0, |a| a.at),
+                item: Item::of(f),
+                key,
+            }
+        })
+        .collect();
 
     let mut totals = Totals::default();
     for f in &scan.findings {
@@ -335,21 +455,13 @@ fn build_report(
         .map(|g| g.title.clone())
         .collect();
 
-    let zone = if scan.score < RISK_BELOW {
-        "risk"
-    } else if scan.score < CAUTION_BELOW {
-        "caution"
-    } else {
-        "ok"
-    };
-
     Report {
         lang: lang.code(),
         available,
         error,
         generated_at: scan.generated_at,
-        score: scan.score,
-        zone,
+        score,
+        zone: zone_of(score),
         headline: i18n::headline(lang, totals.urgent, totals.important + totals.minor),
         lead: i18n::lead(lang, &urgent_titles),
         lights,
@@ -359,6 +471,9 @@ fn build_report(
         cluster_error,
         runners,
         groups,
+        accepted,
+        n8n_url: extras.n8n_url.clone(),
+        writable: extras.writable,
         ui: ui_text(lang),
     }
 }
@@ -367,23 +482,19 @@ fn build_report(
 fn group(lang: Lang, findings: Vec<Finding>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     for f in findings {
-        let item = Item {
-            workflow: f.workflow,
-            node: f.node,
-            detail: f.detail,
-            active: f.active,
-        };
+        let (check, severity) = (f.check, f.severity);
+        let item = Item::of(f);
         match groups
             .iter_mut()
-            .find(|g| g.check == f.check && g.severity == f.severity)
+            .find(|g| g.check == check && g.severity == severity)
         {
             Some(existing) => existing.items.push(item),
             None => groups.push(Group {
-                check: f.check,
-                severity: f.severity,
+                check,
+                severity,
                 count: 0,
                 title: String::new(),
-                advice: i18n::advice(lang, f.check),
+                advice: i18n::advice(lang, check),
                 items: vec![item],
             }),
         }
@@ -393,6 +504,166 @@ fn group(lang: Lang, findings: Vec<Finding>) -> Vec<Group> {
         g.title = i18n::group_title(lang, g.check, g.count);
     }
     groups
+}
+
+impl Item {
+    fn of(f: Finding) -> Self {
+        Self {
+            key: f.key(),
+            path: f.path(),
+            workflow: f.workflow,
+            node: f.node,
+            detail: f.detail,
+            active: f.active,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SettingsView {
+    /// False when there is nowhere to save: no data directory, or saved
+    /// settings that could not be read.
+    writable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    values: settings::Form,
+    /// Shown for reference; these can only be set in the environment.
+    database: String,
+    mcp: bool,
+    version: &'static str,
+}
+
+async fn settings_view(State(state): State<Arc<AppState>>) -> Json<SettingsView> {
+    Json(SettingsView {
+        writable: state.settings_store.is_some(),
+        error: state.settings_error.clone(),
+        values: state.saved.read().await.form(&state.defaults),
+        database: state.database.clone(),
+        mcp: state.mcp_token.is_some(),
+        version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
+/// The answer to anything that changes what nbuddyn keeps.
+#[derive(Serialize)]
+struct Saving {
+    ok: bool,
+    /// Names of the settings that are not valid.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    wrong: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl Saving {
+    fn done() -> Response {
+        Json(Self {
+            ok: true,
+            wrong: Vec::new(),
+            error: None,
+        })
+        .into_response()
+    }
+
+    fn refused(status: StatusCode, wrong: Vec<&'static str>, error: Option<String>) -> Response {
+        let body = Self {
+            ok: false,
+            wrong,
+            error,
+        };
+        (status, Json(body)).into_response()
+    }
+}
+
+/// A browser only sends this header from nbuddyn's own page: another site
+/// would need permission that nbuddyn never gives. It keeps a page elsewhere
+/// from changing settings with the login the browser remembers.
+const WRITE_HEADER: &str = "x-nbuddyn";
+
+/// Applies `change` to a copy of what is saved, writes it, and only then puts
+/// it in force.
+async fn save_with(
+    state: &AppState,
+    headers: &HeaderMap,
+    change: impl FnOnce(&Saved) -> Result<Saved, Vec<&'static str>>,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
+    let Some(store) = &state.settings_store else {
+        let reason = state.settings_error.clone();
+        return Saving::refused(StatusCode::CONFLICT, Vec::new(), reason);
+    };
+    let mut saved = state.saved.write().await;
+    let next = match change(&saved) {
+        Ok(next) => next,
+        Err(wrong) => return Saving::refused(StatusCode::UNPROCESSABLE_ENTITY, wrong, None),
+    };
+    if let Err(reason) = store.save(&next) {
+        eprintln!("settings not saved: {reason}");
+        return Saving::refused(StatusCode::INTERNAL_SERVER_ERROR, Vec::new(), Some(reason));
+    }
+    *saved = next;
+    drop(saved);
+    state.rescan.notify_one();
+    Saving::done()
+}
+
+async fn settings_save(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(form): Json<settings::Form>,
+) -> Response {
+    save_with(&state, &headers, |saved| {
+        saved.with_form(&form, &state.defaults)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct Decision {
+    key: String,
+    #[serde(default)]
+    note: String,
+}
+
+async fn accept(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(decision): Json<Decision>,
+) -> Response {
+    // Only something the latest scan actually found can be accepted.
+    let known = state
+        .latest
+        .read()
+        .await
+        .as_ref()
+        .is_some_and(|scan| scan.findings.iter().any(|f| f.key() == decision.key));
+    if !known {
+        return Saving::refused(StatusCode::NOT_FOUND, Vec::new(), None);
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    save_with(&state, &headers, |saved| {
+        let mut next = saved.clone();
+        next.accept(&decision.key, &decision.note, now);
+        Ok(next)
+    })
+    .await
+}
+
+async fn unaccept(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(decision): Json<Decision>,
+) -> Response {
+    save_with(&state, &headers, |saved| {
+        let mut next = saved.clone();
+        next.unaccept(&decision.key);
+        Ok(next)
+    })
+    .await
 }
 
 async fn require_login(
@@ -462,13 +733,14 @@ mod tests {
             node: None,
             detail: None,
             active: Some(true),
+            workflow_id: None,
+            subject: None,
         }
     }
 
-    fn scan_of(score: u32, findings: Vec<Finding>) -> Scan {
+    fn scan_of(_score: u32, findings: Vec<Finding>) -> Scan {
         Scan {
             generated_at: 1,
-            score,
             inventory: Inventory::default(),
             findings,
             cluster: None,
@@ -588,6 +860,8 @@ mod tests {
                 node: None,
                 detail: Some("allkeys-lru".into()),
                 active: None,
+                workflow_id: None,
+                subject: None,
             }],
         );
         scan.cluster = Some(Cluster {
@@ -652,6 +926,8 @@ mod tests {
                 node: None,
                 detail: Some("n8n_runner-02 · cannot connect".into()),
                 active: None,
+                workflow_id: None,
+                subject: None,
             }],
         );
         scan.runners = vec![
@@ -682,11 +958,52 @@ mod tests {
 
     #[test]
     fn zone_follows_the_score() {
-        let zone = |score| build_report(Lang::En, Some(scan_of(score, vec![])), None, None).zone;
+        let zone = zone_of;
         assert_eq!(
             (zone(53), zone(59), zone(60), zone(84), zone(85), zone(100)),
             ("risk", "risk", "caution", "caution", "ok", "ok")
         );
+    }
+
+    #[test]
+    fn an_accepted_finding_leaves_the_score_and_is_listed_apart() {
+        let mut door = finding("public_entry_no_auth", Severity::Medium, "Formulario");
+        door.workflow_id = Some("abc123".into());
+        door.node = Some("Webhook".into());
+        let failing = finding("repeated_failures", Severity::High, "Stock");
+        let scan = scan_of(0, vec![failing.clone(), door.clone()]);
+
+        let before = build_report(Lang::Es, Some(scan.clone()), None, None);
+        assert_eq!(before.totals.important, 1);
+        assert_eq!(
+            before.groups[1].items[0].path.as_deref(),
+            Some("/workflow/abc123")
+        );
+        assert!(before.accepted.is_empty());
+
+        let mut extras = Extras {
+            n8n_url: "https://n8n.example.com".into(),
+            ..Extras::default()
+        };
+        extras.saved.accept(&door.key(), "público a propósito", 99);
+        let after = compose_report(Lang::Es, Some(scan), None, None, &extras);
+
+        assert_eq!(after.totals.important, 0);
+        assert!(after.score > before.score);
+        assert_eq!(after.score, crate::radar::score(&[failing]));
+        assert!(after
+            .lights
+            .iter()
+            .all(|l| l.key != "doors" || l.level == "ok"));
+        assert_eq!(after.groups.len(), 1);
+        let accepted = &after.accepted[0];
+        assert_eq!(accepted.title, "Un webhook o formulario sin autenticación");
+        assert_eq!(
+            (accepted.note.as_str(), accepted.at),
+            ("público a propósito", 99)
+        );
+        assert_eq!(accepted.item.workflow.as_deref(), Some("Formulario"));
+        assert_eq!(after.n8n_url, "https://n8n.example.com");
     }
 
     #[test]

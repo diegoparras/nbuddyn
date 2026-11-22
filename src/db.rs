@@ -74,7 +74,7 @@ pub async fn read_snapshot(client: &Client) -> Result<Snapshot, DbError> {
 async fn workflows(client: &Client) -> Result<Vec<Workflow>, DbError> {
     let rows = client
         .query(
-            r#"select name::text, active, "isArchived", nodes::text, settings::text
+            r#"select name::text, active, "isArchived", nodes::text, settings::text, id::text
                from workflow_entity"#,
             &[],
         )
@@ -84,7 +84,14 @@ async fn workflows(client: &Client) -> Result<Vec<Workflow>, DbError> {
         .map(|r| {
             let nodes: String = r.get(3);
             let settings: Option<String> = r.get(4);
-            Workflow::from_raw(r.get(0), r.get(1), r.get(2), &nodes, settings.as_deref())
+            Workflow::from_raw(
+                r.get(5),
+                r.get(0),
+                r.get(1),
+                r.get(2),
+                &nodes,
+                settings.as_deref(),
+            )
         })
         .collect())
 }
@@ -110,13 +117,14 @@ async fn error_counts(client: &Client) -> Result<Vec<ErrorCount>, DbError> {
     let rows = client
         .query(
             r#"select coalesce(w.name, e."workflowId")::text, count(*),
-                      to_char(max(e."startedAt"), 'YYYY-MM-DD HH24:MI')
+                      to_char(max(e."startedAt"), 'YYYY-MM-DD HH24:MI'),
+                      coalesce(e."workflowId", '')::text
                from execution_entity e
                left join workflow_entity w on w.id = e."workflowId"
                where e."deletedAt" is null
                  and e.status in ('error', 'crashed')
                  and e."startedAt" > now() - interval '7 days'
-               group by 1
+               group by 1, 4
                order by 2 desc"#,
             &[],
         )
@@ -124,6 +132,7 @@ async fn error_counts(client: &Client) -> Result<Vec<ErrorCount>, DbError> {
     Ok(rows
         .iter()
         .map(|r| ErrorCount {
+            workflow_id: r.get(3),
             workflow: r.get(0),
             errors: r.get(1),
             last: r.get::<_, Option<String>>(2).unwrap_or_default(),
@@ -135,7 +144,8 @@ async fn stuck(client: &Client) -> Result<Vec<StuckExecution>, DbError> {
     let rows = client
         .query(
             r#"select e.id::text, coalesce(w.name, e."workflowId")::text, e.status::text,
-                      to_char(coalesce(e."startedAt", e."createdAt"), 'YYYY-MM-DD HH24:MI')
+                      to_char(coalesce(e."startedAt", e."createdAt"), 'YYYY-MM-DD HH24:MI'),
+                      coalesce(e."workflowId", '')::text
                from execution_entity e
                left join workflow_entity w on w.id = e."workflowId"
                where e."deletedAt" is null
@@ -150,6 +160,7 @@ async fn stuck(client: &Client) -> Result<Vec<StuckExecution>, DbError> {
         .iter()
         .map(|r| StuckExecution {
             id: r.get(0),
+            workflow_id: r.get(4),
             workflow: r.get(1),
             status: r.get(2),
             since: r.get::<_, Option<String>>(3).unwrap_or_default(),

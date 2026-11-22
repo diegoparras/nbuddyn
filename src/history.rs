@@ -173,6 +173,7 @@ impl History {
                 counts.add(*runs);
                 let entry = workflows.entry(id).or_insert_with(|| WorkflowView {
                     name: self.names.get(id).cloned().unwrap_or_else(|| id.clone()),
+                    path: crate::radar::workflow_path(id),
                     counts: Counts::default(),
                     last_day: String::new(),
                 });
@@ -226,6 +227,9 @@ pub struct DayView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkflowView {
     pub name: String,
+    /// Path under n8n's address; the workflow may no longer exist there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(flatten)]
     pub counts: Counts,
     pub last_day: String,
@@ -283,10 +287,12 @@ impl Store {
     }
 }
 
-fn write_atomically(dir: &Path, file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// Replaces `file` inside `dir` in one step, so a crash never leaves half a file.
+pub fn write_atomically(dir: &Path, file: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(dir)?;
-    let partial = dir.join(format!("{FILE}.partial"));
+    let mut partial = file.as_os_str().to_owned();
+    partial.push(".partial");
     let mut out = std::fs::File::create(&partial)?;
     out.write_all(bytes)?;
     out.sync_all()?;

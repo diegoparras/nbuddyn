@@ -47,6 +47,66 @@ pub struct Finding {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
+    /// n8n's id of the workflow, when the finding is about one.
+    #[serde(skip)]
+    pub workflow_id: Option<String>,
+    /// What else tells this finding from its siblings: an execution id, a
+    /// credential id or a runner name.
+    #[serde(skip)]
+    pub subject: Option<String>,
+}
+
+/// The path of a workflow in n8n's editor, when its id is safe to put in a link.
+pub fn workflow_path(id: &str) -> Option<String> {
+    let safe = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    safe.then(|| format!("/workflow/{id}"))
+}
+
+impl Finding {
+    /// Identifies this finding from one scan to the next, so a decision taken
+    /// about it sticks. The severity is part of it: a finding that gets worse
+    /// is a new finding.
+    pub fn key(&self) -> String {
+        let severity = match self.severity {
+            Severity::High => "high",
+            Severity::Medium => "medium",
+            Severity::Low => "low",
+            Severity::Info => "info",
+        };
+        let workflow = self.workflow_id.as_deref().or(self.workflow.as_deref());
+        format!(
+            "{}|{severity}|{}|{}|{}",
+            self.check,
+            workflow.unwrap_or_default(),
+            self.node.as_deref().unwrap_or_default(),
+            self.subject.as_deref().unwrap_or_default()
+        )
+    }
+
+    /// Where in n8n's editor this finding can be seen, as a path under n8n's
+    /// address. `None` when there is nowhere to point at.
+    pub fn path(&self) -> Option<String> {
+        let safe = |id: &str| {
+            !id.is_empty()
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        };
+        let workflow = self.workflow_id.as_deref().filter(|id| safe(id))?;
+        match self
+            .subject
+            .as_deref()
+            .filter(|_| self.check == "stuck_execution")
+        {
+            Some(execution) if safe(execution) => {
+                Some(format!("/workflow/{workflow}/executions/{execution}"))
+            }
+            _ => Some(format!("/workflow/{workflow}")),
+        }
+    }
 }
 
 const PUBLIC_ENTRY_TYPES: &[(&str, &str, Severity)] = &[
@@ -133,6 +193,8 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
             node: None,
             detail: Some(format!("{} · {}", e.errors, e.last)),
             active: None,
+            workflow_id: Some(e.workflow_id.clone()).filter(|id| !id.is_empty()),
+            subject: None,
         });
     }
 
@@ -144,6 +206,8 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
             node: None,
             detail: Some(format!("#{} · {} · {}", s.id, s.status, s.since)),
             active: None,
+            workflow_id: Some(s.workflow_id.clone()).filter(|id| !id.is_empty()),
+            subject: Some(s.id.clone()),
         });
     }
 
@@ -165,6 +229,8 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
             node: None,
             detail: Some(format!("{} ({})", c.name, c.kind)),
             active: None,
+            workflow_id: None,
+            subject: Some(c.id.clone()),
         });
     }
 
@@ -182,6 +248,8 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
                 node: None,
                 detail: Some(format!("{} · {problem}", runner.name)),
                 active: None,
+                workflow_id: None,
+                subject: Some(runner.name.clone()),
             });
         }
     }
@@ -197,6 +265,8 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
                 snapshot.users_without_mfa, snapshot.users_total
             )),
             active: None,
+            workflow_id: None,
+            subject: None,
         });
     }
 
@@ -317,6 +387,8 @@ fn on_workflow(check: &'static str, severity: Severity, wf: &Workflow) -> Findin
         node: None,
         detail: None,
         active: Some(wf.active),
+        workflow_id: Some(wf.id.clone()).filter(|id| !id.is_empty()),
+        subject: None,
     }
 }
 
@@ -334,6 +406,8 @@ fn on_node(
         node: Some(node.name.clone()),
         detail,
         active: Some(wf.active),
+        workflow_id: Some(wf.id.clone()).filter(|id| !id.is_empty()),
+        subject: None,
     }
 }
 
@@ -351,6 +425,8 @@ fn check_cluster(cluster: &Cluster, out: &mut Vec<Finding>) {
         node: None,
         detail: Some(detail),
         active: None,
+        workflow_id: None,
+        subject: None,
     };
 
     let redis = &cluster.redis;
@@ -447,7 +523,56 @@ mod tests {
     use crate::model::{Credential, ErrorCount};
 
     fn wf(name: &str, active: bool, nodes: &str, settings: Option<&str>) -> Workflow {
-        Workflow::from_raw(name.into(), active, false, nodes, settings)
+        Workflow::from_raw("wf1".into(), name.into(), active, false, nodes, settings)
+    }
+
+    #[test]
+    fn findings_keep_their_identity_and_point_into_n8n() {
+        let base = Finding {
+            check: "stuck_execution",
+            severity: Severity::High,
+            workflow: Some("Ventas".into()),
+            node: None,
+            detail: Some("#77 · running".into()),
+            active: None,
+            workflow_id: Some("aB3_x-9".into()),
+            subject: Some("77".into()),
+        };
+        assert_eq!(base.key(), "stuck_execution|high|aB3_x-9||77");
+        assert_eq!(
+            base.path().as_deref(),
+            Some("/workflow/aB3_x-9/executions/77")
+        );
+
+        // The detail can change between scans; the identity does not.
+        let later = Finding {
+            detail: Some("#77 · running · later".into()),
+            ..base.clone()
+        };
+        assert_eq!(later.key(), base.key());
+        // A finding that gets worse is a new one.
+        let milder = Finding {
+            severity: Severity::Medium,
+            ..base.clone()
+        };
+        assert_ne!(milder.key(), base.key());
+
+        let on_workflow = Finding {
+            check: "no_error_workflow",
+            subject: None,
+            ..base.clone()
+        };
+        assert_eq!(on_workflow.path().as_deref(), Some("/workflow/aB3_x-9"));
+        let odd = Finding {
+            workflow_id: Some("../admin?x=1".into()),
+            ..base.clone()
+        };
+        assert_eq!(odd.path(), None);
+        let instance = Finding {
+            workflow_id: None,
+            ..base
+        };
+        assert_eq!(instance.path(), None);
     }
 
     fn checks(findings: &[Finding]) -> Vec<&'static str> {
@@ -569,11 +694,13 @@ mod tests {
             ],
             error_counts: vec![
                 ErrorCount {
+                    workflow_id: String::new(),
                     workflow: "noisy".into(),
                     errors: 1008,
                     last: "2026-11-22 02:55".into(),
                 },
                 ErrorCount {
+                    workflow_id: String::new(),
                     workflow: "blip".into(),
                     errors: 2,
                     last: "2026-11-21 20:46".into(),
@@ -601,6 +728,8 @@ mod tests {
                 node: None,
                 detail: None,
                 active: Some(true),
+                workflow_id: None,
+                subject: None,
             })
             .collect()
     }
