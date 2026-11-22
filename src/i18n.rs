@@ -36,97 +36,121 @@ impl Lang {
     }
 }
 
-/// Title and advice for one check.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct CheckText {
-    pub title: &'static str,
-    pub advice: &'static str,
-}
+/// Every check the radar can report, in the order they are documented.
+#[cfg(test)]
+pub const CHECKS: &[&str] = &[
+    "open_ai_entry",
+    "repeated_failures",
+    "stuck_execution",
+    "hardcoded_secret",
+    "public_entry_no_auth",
+    "no_error_workflow",
+    "plaintext_http",
+    "no_mfa",
+    "removed_node_v3",
+    "env_access",
+    "unused_credential",
+    "command_execution",
+];
 
-pub fn check_text(lang: Lang, check: &str) -> CheckText {
-    let (title, advice) = match check {
-        "public_entry_no_auth" => (
+/// Heading for a group of `count` findings of one check, such as
+/// "5 MCP servers or chats without authentication".
+pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
+    let (one, many) = match check {
+        "open_ai_entry" => (
             lang.pick(
-                "Public entry point without authentication",
-                "Entrada pública sin autenticación",
-                "Entrada pública sem autenticação",
+                "An MCP server or chat without authentication",
+                "Un servidor MCP o chat sin autenticación",
+                "Um servidor MCP ou chat sem autenticação",
             ),
             lang.pick(
-                "Anyone who learns the URL can call it. Add authentication on the trigger node, or validate the caller inside the workflow.",
-                "Cualquiera que conozca la dirección puede llamarla. Agregá autenticación en el nodo disparador, o validá a quien llama dentro del workflow.",
-                "Qualquer pessoa que conheça o endereço pode chamá-la. Adicione autenticação no nó de gatilho, ou valide quem chama dentro do workflow.",
+                "{n} MCP servers or chats without authentication",
+                "{n} servidores MCP o chats sin autenticación",
+                "{n} servidores MCP ou chats sem autenticação",
+            ),
+        ),
+        "public_entry_no_auth" => (
+            lang.pick(
+                "A webhook or form without authentication",
+                "Un webhook o formulario sin autenticación",
+                "Um webhook ou formulário sem autenticação",
+            ),
+            lang.pick(
+                "{n} webhooks or forms without authentication",
+                "{n} webhooks o formularios sin autenticación",
+                "{n} webhooks ou formulários sem autenticação",
             ),
         ),
         "hardcoded_secret" => (
             lang.pick(
-                "Secret written inside a node",
-                "Clave escrita dentro de un nodo",
-                "Chave escrita dentro de um nó",
+                "A secret written inside a node",
+                "Una clave escrita dentro de un nodo",
+                "Uma chave escrita dentro de um nó",
             ),
             lang.pick(
-                "Move it to an n8n credential so it is stored encrypted and does not travel with the workflow.",
-                "Pasala a una credencial de n8n para que se guarde cifrada y no viaje con el workflow.",
-                "Mova-a para uma credencial do n8n para que fique criptografada e não viaje com o workflow.",
+                "{n} secrets written inside nodes",
+                "{n} claves escritas dentro de nodos",
+                "{n} chaves escritas dentro de nós",
             ),
         ),
         "no_error_workflow" => (
             lang.pick(
-                "Active workflow without an error workflow",
-                "Workflow activo sin workflow de error",
-                "Workflow ativo sem workflow de erro",
+                "An active workflow tells nobody when it fails",
+                "Un workflow activo no avisa cuando falla",
+                "Um workflow ativo não avisa quando falha",
             ),
             lang.pick(
-                "If it fails, nobody is told. Assign an error workflow in its settings.",
-                "Si falla, nadie recibe aviso. Asignale un workflow de error en su configuración.",
-                "Se falhar, ninguém é avisado. Atribua um workflow de erro nas configurações.",
+                "{n} active workflows tell nobody when they fail",
+                "{n} workflows activos no avisan cuando fallan",
+                "{n} workflows ativos não avisam quando falham",
             ),
         ),
         "repeated_failures" => (
             lang.pick(
-                "Workflow failing repeatedly",
-                "Workflow que falla repetidamente",
-                "Workflow falhando repetidamente",
+                "A workflow keeps failing",
+                "Un workflow falla una y otra vez",
+                "Um workflow falha repetidamente",
             ),
             lang.pick(
-                "Open its latest failed execution to see which node breaks. Expired credentials are a common cause.",
-                "Abrí su última ejecución fallida para ver qué nodo se rompe. Una credencial vencida es una causa frecuente.",
-                "Abra a última execução com falha para ver qual nó quebra. Credenciais expiradas são uma causa comum.",
+                "{n} workflows keep failing",
+                "{n} workflows fallan una y otra vez",
+                "{n} workflows falham repetidamente",
             ),
         ),
         "stuck_execution" => (
             lang.pick(
-                "Execution stuck for over an hour",
-                "Ejecución trabada hace más de una hora",
-                "Execução travada há mais de uma hora",
+                "An execution stuck for over an hour",
+                "Una ejecución trabada hace más de una hora",
+                "Uma execução travada há mais de uma hora",
             ),
             lang.pick(
-                "Check that workers and task runners are alive, then stop the execution if it will not finish.",
-                "Revisá que los workers y los runners estén vivos, y detené la ejecución si no va a terminar.",
-                "Verifique se os workers e os runners estão ativos, e pare a execução se ela não for terminar.",
+                "{n} executions stuck for over an hour",
+                "{n} ejecuciones trabadas hace más de una hora",
+                "{n} execuções travadas há mais de uma hora",
             ),
         ),
         "removed_node_v3" => (
             lang.pick(
-                "Node removed in n8n 3",
-                "Nodo eliminado en n8n 3",
-                "Nó removido no n8n 3",
+                "A node removed in n8n 3",
+                "Un nodo eliminado en n8n 3",
+                "Um nó removido no n8n 3",
             ),
             lang.pick(
-                "The workflow fails when it runs. Replace the node with its current equivalent.",
-                "El workflow falla al ejecutarse. Reemplazá el nodo por su equivalente actual.",
-                "O workflow falha ao executar. Substitua o nó pelo equivalente atual.",
+                "{n} nodes removed in n8n 3",
+                "{n} nodos eliminados en n8n 3",
+                "{n} nós removidos no n8n 3",
             ),
         ),
         "plaintext_http" => (
             lang.pick(
-                "Unencrypted call to an external host",
-                "Llamada sin cifrar a un destino externo",
-                "Chamada sem criptografia a um destino externo",
+                "An unencrypted call to an external host",
+                "Una llamada sin cifrar a un destino externo",
+                "Uma chamada sem criptografia a um destino externo",
             ),
             lang.pick(
-                "Data travels readable over the network. Use https:// if the destination supports it.",
-                "Los datos viajan legibles por la red. Usá https:// si el destino lo admite.",
-                "Os dados trafegam legíveis pela rede. Use https:// se o destino suportar.",
+                "{n} unencrypted calls to external hosts",
+                "{n} llamadas sin cifrar a destinos externos",
+                "{n} chamadas sem criptografia a destinos externos",
             ),
         ),
         "no_mfa" => (
@@ -136,70 +160,209 @@ pub fn check_text(lang: Lang, check: &str) -> CheckText {
                 "Usuários sem autenticação de dois fatores",
             ),
             lang.pick(
-                "Enable it under Settings > Personal, especially for owner accounts.",
-                "Activalo en Settings > Personal, sobre todo en las cuentas dueñas.",
-                "Ative em Settings > Personal, principalmente nas contas proprietárias.",
+                "Users without two-factor authentication",
+                "Usuarios sin doble factor",
+                "Usuários sem autenticação de dois fatores",
             ),
         ),
         "env_access" => (
             lang.pick(
-                "Node reads server environment variables",
-                "Nodo que lee variables de entorno del servidor",
-                "Nó que lê variáveis de ambiente do servidor",
+                "A node reads server environment variables",
+                "Un nodo lee variables de entorno del servidor",
+                "Um nó lê variáveis de ambiente do servidor",
             ),
             lang.pick(
-                "It stops working when environment access is blocked, and it can expose server secrets when it is not.",
-                "Deja de funcionar si el acceso al entorno está bloqueado, y puede exponer claves del servidor si no lo está.",
-                "Deixa de funcionar se o acesso ao ambiente estiver bloqueado, e pode expor chaves do servidor se não estiver.",
+                "{n} nodes read server environment variables",
+                "{n} nodos leen variables de entorno del servidor",
+                "{n} nós leem variáveis de ambiente do servidor",
             ),
         ),
         "unused_credential" => (
             lang.pick(
-                "Credential not used by any workflow",
-                "Credencial que ningún workflow usa",
-                "Credencial não usada por nenhum workflow",
+                "A credential no workflow uses",
+                "Una credencial que ningún workflow usa",
+                "Uma credencial que nenhum workflow usa",
             ),
             lang.pick(
-                "Delete it if nothing else needs it. Credentials used by n8n itself, such as the assistant's, also appear here.",
-                "Borrala si nada más la necesita. Las que usa el propio n8n, como las del asistente, también aparecen acá.",
-                "Exclua se nada mais precisar dela. As usadas pelo próprio n8n, como as do assistente, também aparecem aqui.",
+                "{n} credentials no workflow uses",
+                "{n} credenciales que ningún workflow usa",
+                "{n} credenciais que nenhum workflow usa",
             ),
         ),
         "command_execution" => (
             lang.pick(
-                "Node runs system commands",
-                "Nodo que ejecuta comandos del sistema",
-                "Nó que executa comandos do sistema",
+                "A node runs system commands",
+                "Un nodo ejecuta comandos del sistema",
+                "Um nó executa comandos do sistema",
             ),
             lang.pick(
-                "Expected for some workflows. Make sure only trusted people can edit it.",
-                "Es esperable en algunos workflows. Asegurate de que solo gente de confianza pueda editarlo.",
-                "É esperado em alguns workflows. Garanta que só pessoas de confiança possam editá-lo.",
+                "{n} nodes run system commands",
+                "{n} nodos ejecutan comandos del sistema",
+                "{n} nós executam comandos do sistema",
             ),
         ),
         _ => ("", ""),
     };
-    CheckText { title, advice }
+    if count == 1 {
+        one.to_owned()
+    } else {
+        many.replace("{n}", &count.to_string())
+    }
+}
+
+/// What to do about a check.
+pub fn advice(lang: Lang, check: &str) -> &'static str {
+    match check {
+        "open_ai_entry" => lang.pick(
+            "Anyone who learns the address can use those tools with your accounts. Add authentication on each trigger node.",
+            "Quien conozca la dirección puede usar esas herramientas con tus cuentas. Agregá autenticación en cada nodo disparador.",
+            "Quem conhecer o endereço pode usar essas ferramentas com as suas contas. Adicione autenticação em cada nó de gatilho.",
+        ),
+        "public_entry_no_auth" => lang.pick(
+            "Anyone who learns the address can call them. Add authentication on the trigger node, or validate the caller inside the workflow.",
+            "Cualquiera que conozca la dirección puede llamarlos. Agregá autenticación en el nodo disparador, o validá a quien llama dentro del workflow.",
+            "Qualquer pessoa que conheça o endereço pode chamá-los. Adicione autenticação no nó de gatilho, ou valide quem chama dentro do workflow.",
+        ),
+        "hardcoded_secret" => lang.pick(
+            "Move them to n8n credentials so they are stored encrypted and do not travel with the workflow.",
+            "Pasalas a credenciales de n8n para que se guarden cifradas y no viajen con el workflow.",
+            "Mova-as para credenciais do n8n para que fiquem criptografadas e não viajem com o workflow.",
+        ),
+        "no_error_workflow" => lang.pick(
+            "One error workflow that sends you a message is enough; assign it to all of them.",
+            "Alcanza con un solo workflow de error que te mande un mensaje; asignalo a todos.",
+            "Basta um único workflow de erro que envie uma mensagem; atribua-o a todos.",
+        ),
+        "repeated_failures" => lang.pick(
+            "Open the latest failed execution to see which node breaks. An expired credential is a common cause.",
+            "Abrí la última ejecución fallida para ver qué nodo se rompe. Una credencial vencida es una causa frecuente.",
+            "Abra a última execução com falha para ver qual nó quebra. Uma credencial expirada é uma causa comum.",
+        ),
+        "stuck_execution" => lang.pick(
+            "Check that workers and task runners are alive, then stop the execution if it will not finish.",
+            "Revisá que los workers y los runners estén vivos, y detené la ejecución si no va a terminar.",
+            "Verifique se os workers e os runners estão ativos, e pare a execução se ela não for terminar.",
+        ),
+        "removed_node_v3" => lang.pick(
+            "The workflow fails when it runs. Replace each node with its current equivalent.",
+            "El workflow falla al ejecutarse. Reemplazá cada nodo por su equivalente actual.",
+            "O workflow falha ao executar. Substitua cada nó pelo equivalente atual.",
+        ),
+        "plaintext_http" => lang.pick(
+            "Data travels readable over the network. Use https:// where the destination supports it.",
+            "Los datos viajan legibles por la red. Usá https:// donde el destino lo admita.",
+            "Os dados trafegam legíveis pela rede. Use https:// onde o destino suportar.",
+        ),
+        "no_mfa" => lang.pick(
+            "Enable it under Settings > Personal, especially for owner accounts.",
+            "Activalo en Settings > Personal, sobre todo en las cuentas dueñas.",
+            "Ative em Settings > Personal, principalmente nas contas proprietárias.",
+        ),
+        "env_access" => lang.pick(
+            "They stop working when environment access is blocked, and can expose server secrets when it is not.",
+            "Dejan de funcionar si el acceso al entorno está bloqueado, y pueden exponer claves del servidor si no lo está.",
+            "Deixam de funcionar se o acesso ao ambiente estiver bloqueado, e podem expor chaves do servidor se não estiver.",
+        ),
+        "unused_credential" => lang.pick(
+            "Delete the ones nothing else needs. Credentials used by n8n itself, such as the assistant's, also appear here.",
+            "Borrá las que nada más necesite. Las que usa el propio n8n, como las del asistente, también aparecen acá.",
+            "Exclua as que nada mais precisa. As usadas pelo próprio n8n, como as do assistente, também aparecem aqui.",
+        ),
+        "command_execution" => lang.pick(
+            "Expected for some workflows. Make sure only trusted people can edit them.",
+            "Es esperable en algunos workflows. Asegurate de que solo gente de confianza pueda editarlos.",
+            "É esperado em alguns workflows. Garanta que só pessoas de confiança possam editá-los.",
+        ),
+        _ => "",
+    }
+}
+
+/// The one sentence that sums up the instance, in the voice of the cockpit.
+pub fn headline(lang: Lang, urgent: usize, other: usize) -> String {
+    let template = match (urgent, other) {
+        (0, 0) => lang.pick(
+            "Your n8n is flying clean. Nothing to report.",
+            "Tu n8n vuela limpio. Nada para reportar.",
+            "O seu n8n voa limpo. Nada a relatar.",
+        ),
+        (0, 1) => lang.pick(
+            "Your n8n is flying steady, with one point to review.",
+            "Tu n8n vuela estable, con un punto para revisar.",
+            "O seu n8n voa estável, com um ponto para revisar.",
+        ),
+        (0, _) => lang.pick(
+            "Your n8n is flying steady, with {m} points to review.",
+            "Tu n8n vuela estable, con {m} puntos para revisar.",
+            "O seu n8n voa estável, com {m} pontos para revisar.",
+        ),
+        (1, _) => lang.pick(
+            "Your n8n is flying, but with one red light on.",
+            "Tu n8n vuela, pero con una luz roja encendida.",
+            "O seu n8n voa, mas com uma luz vermelha acesa.",
+        ),
+        _ => lang.pick(
+            "Your n8n is flying, but with {n} red lights on.",
+            "Tu n8n vuela, pero con {n} luces rojas encendidas.",
+            "O seu n8n voa, mas com {n} luzes vermelhas acesas.",
+        ),
+    };
+    template
+        .replace("{n}", &urgent.to_string())
+        .replace("{m}", &other.to_string())
+}
+
+/// A second line naming the most urgent groups, built from their titles.
+pub fn lead(lang: Lang, urgent_titles: &[String]) -> String {
+    let lower_first = |s: &str| {
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        }
+    };
+    match urgent_titles {
+        [] => String::new(),
+        [only] => format!(
+            "{} {}.",
+            lang.pick("Most urgent:", "Lo más urgente:", "Mais urgente:"),
+            lower_first(only)
+        ),
+        [first, second, ..] => format!(
+            "{} {} {} {}.",
+            lang.pick("Most urgent:", "Lo más urgente:", "Mais urgente:"),
+            lower_first(first),
+            lang.pick("and", "y", "e"),
+            lower_first(second)
+        ),
+    }
 }
 
 /// Labels for the web page, sent with every report so the page holds no text of its own.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct UiText {
     pub tagline: &'static str,
-    pub score: &'static str,
-    pub generated: &'static str,
-    pub findings: &'static str,
-    pub nothing: &'static str,
-    pub workflows: &'static str,
-    pub active: &'static str,
-    pub credentials: &'static str,
-    pub users: &'static str,
-    pub nodes: &'static str,
-    pub waiting: &'static str,
-    pub high: &'static str,
-    pub medium: &'static str,
-    pub low: &'static str,
+    pub sweep: &'static str,
+    pub export: &'static str,
+    pub zone_risk: &'static str,
+    pub zone_caution: &'static str,
+    pub zone_ok: &'static str,
+    pub gauge: &'static str,
+    pub light_doors: &'static str,
+    pub light_failures: &'static str,
+    pub light_silent: &'static str,
+    pub light_secrets: &'static str,
+    pub ok: &'static str,
+    pub urgent: &'static str,
+    pub important: &'static str,
+    pub minor: &'static str,
     pub info: &'static str,
+    pub total_urgent: &'static str,
+    pub total_important: &'static str,
+    pub total_minor: &'static str,
+    pub workflows_reviewed: &'static str,
+    pub nodes_reviewed: &'static str,
+    pub more: &'static str,
+    pub show: &'static str,
     pub inactive: &'static str,
     pub read_only: &'static str,
     pub unavailable: &'static str,
@@ -209,32 +372,40 @@ pub struct UiText {
 pub fn ui_text(lang: Lang) -> UiText {
     UiText {
         tagline: lang.pick(
-            "Read-only cockpit for n8n",
-            "Cabina de solo lectura para n8n",
-            "Cabine somente leitura para n8n",
+            "Flight report for n8n",
+            "Informe de vuelo de n8n",
+            "Relatório de voo do n8n",
         ),
-        score: lang.pick("Score", "Puntaje", "Pontuação"),
-        generated: lang.pick("Last check", "Último chequeo", "Última verificação"),
-        findings: lang.pick("Findings", "Hallazgos", "Achados"),
-        nothing: lang.pick(
-            "Nothing to report.",
-            "Nada para reportar.",
-            "Nada a relatar.",
+        sweep: lang.pick("Last sweep", "Último barrido", "Última varredura"),
+        export: lang.pick("Export PDF", "Exportar PDF", "Exportar PDF"),
+        zone_risk: lang.pick("Risk zone", "Zona de riesgo", "Zona de risco"),
+        zone_caution: lang.pick("Caution", "Precaución", "Atenção"),
+        zone_ok: lang.pick("On course", "En ruta", "Em rota"),
+        gauge: lang.pick(
+            "Score gauge",
+            "Indicador de puntaje",
+            "Indicador de pontuação",
         ),
-        workflows: lang.pick("Workflows", "Workflows", "Workflows"),
-        active: lang.pick("Active", "Activos", "Ativos"),
-        credentials: lang.pick("Credentials", "Credenciales", "Credenciais"),
-        users: lang.pick("Users", "Usuarios", "Usuários"),
-        nodes: lang.pick("Nodes", "Nodos", "Nós"),
-        waiting: lang.pick(
-            "Waiting executions",
-            "Ejecuciones en espera",
-            "Execuções em espera",
+        light_doors: lang.pick("Doors", "Puertas", "Portas"),
+        light_failures: lang.pick("Failures", "Fallos", "Falhas"),
+        light_silent: lang.pick("No alert", "Sin aviso", "Sem aviso"),
+        light_secrets: lang.pick("Secrets", "Claves", "Chaves"),
+        ok: "OK",
+        urgent: lang.pick("Urgent", "Urgente", "Urgente"),
+        important: lang.pick("Important", "Importante", "Importante"),
+        minor: lang.pick("Minor", "Menor", "Menor"),
+        info: lang.pick("Good to know", "Para saber", "Para saber"),
+        total_urgent: lang.pick("urgent", "urgentes", "urgentes"),
+        total_important: lang.pick("important", "importantes", "importantes"),
+        total_minor: lang.pick("minor", "menores", "menores"),
+        workflows_reviewed: lang.pick(
+            "workflows reviewed",
+            "workflows revisados",
+            "workflows revisados",
         ),
-        high: lang.pick("High", "Alta", "Alta"),
-        medium: lang.pick("Medium", "Media", "Média"),
-        low: lang.pick("Low", "Baja", "Baixa"),
-        info: lang.pick("Info", "Informativo", "Informativo"),
+        nodes_reviewed: lang.pick("nodes reviewed", "nodos revisados", "nós revisados"),
+        more: lang.pick("more", "más", "mais"),
+        show: lang.pick("Show", "Ver", "Ver"),
         inactive: lang.pick("inactive", "inactivo", "inativo"),
         read_only: lang.pick(
             "nbuddyn only reads. It never changes your n8n.",
@@ -254,19 +425,7 @@ pub fn ui_text(lang: Lang) -> UiText {
 mod tests {
     use super::*;
 
-    const CHECKS: &[&str] = &[
-        "public_entry_no_auth",
-        "hardcoded_secret",
-        "no_error_workflow",
-        "repeated_failures",
-        "stuck_execution",
-        "removed_node_v3",
-        "plaintext_http",
-        "no_mfa",
-        "env_access",
-        "unused_credential",
-        "command_execution",
-    ];
+    const LANGS: [Lang; 3] = [Lang::En, Lang::Es, Lang::Pt];
 
     #[test]
     fn language_codes_are_parsed_leniently() {
@@ -277,24 +436,80 @@ mod tests {
     }
 
     #[test]
-    fn every_check_is_translated_in_every_language() {
+    fn every_check_has_a_title_and_advice_in_every_language() {
         for check in CHECKS {
-            let texts: Vec<CheckText> = [Lang::En, Lang::Es, Lang::Pt]
-                .iter()
-                .map(|l| check_text(*l, check))
-                .collect();
-            for text in &texts {
-                assert!(!text.title.is_empty(), "{check} has no title");
-                assert!(!text.advice.is_empty(), "{check} has no advice");
+            let singles: Vec<String> = LANGS.iter().map(|l| group_title(*l, check, 1)).collect();
+            let advices: Vec<&str> = LANGS.iter().map(|l| advice(*l, check)).collect();
+            for (single, advice) in singles.iter().zip(&advices) {
+                assert!(!single.is_empty(), "{check} has no title");
+                assert!(!advice.is_empty(), "{check} has no advice");
             }
             assert_ne!(
-                texts[0].title, texts[1].title,
+                singles[0], singles[1],
                 "{check} title not translated to Spanish"
             );
             assert_ne!(
-                texts[0].advice, texts[2].advice,
+                advices[0], advices[2],
                 "{check} advice not translated to Portuguese"
             );
         }
+    }
+
+    #[test]
+    fn group_titles_count_their_findings() {
+        assert_eq!(
+            group_title(Lang::Es, "open_ai_entry", 5),
+            "5 servidores MCP o chats sin autenticación"
+        );
+        assert_eq!(
+            group_title(Lang::En, "open_ai_entry", 1),
+            "An MCP server or chat without authentication"
+        );
+        for lang in LANGS {
+            for check in CHECKS {
+                assert!(
+                    !group_title(lang, check, 7).contains("{n}"),
+                    "{check} left a placeholder"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn headline_follows_the_state_of_the_instance() {
+        assert_eq!(
+            headline(Lang::Es, 6, 40),
+            "Tu n8n vuela, pero con 6 luces rojas encendidas."
+        );
+        assert_eq!(
+            headline(Lang::Es, 1, 0),
+            "Tu n8n vuela, pero con una luz roja encendida."
+        );
+        assert_eq!(
+            headline(Lang::En, 0, 3),
+            "Your n8n is flying steady, with 3 points to review."
+        );
+        assert_eq!(
+            headline(Lang::Pt, 0, 0),
+            "O seu n8n voa limpo. Nada a relatar."
+        );
+    }
+
+    #[test]
+    fn lead_names_up_to_two_urgent_groups() {
+        let titles = vec![
+            "5 servidores MCP o chats sin autenticación".to_owned(),
+            "Un workflow falla una y otra vez".to_owned(),
+            "Otra cosa".to_owned(),
+        ];
+        assert_eq!(
+            lead(Lang::Es, &titles),
+            "Lo más urgente: 5 servidores MCP o chats sin autenticación y un workflow falla una y otra vez."
+        );
+        assert_eq!(
+            lead(Lang::En, &titles[..1]),
+            "Most urgent: 5 servidores MCP o chats sin autenticación."
+        );
+        assert_eq!(lead(Lang::Pt, &[]), "");
     }
 }

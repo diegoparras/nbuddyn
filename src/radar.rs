@@ -217,13 +217,14 @@ fn check_node(wf: &Workflow, node: &Node, out: &mut Vec<Finding>) {
                 } else {
                     format!("{label} · /{path}")
                 };
-                out.push(on_node(
-                    "public_entry_no_auth",
-                    *severity,
-                    wf,
-                    node,
-                    Some(detail),
-                ));
+                // AI entry points hand tools and data to whoever calls, so they
+                // are reported apart from ordinary webhooks and forms.
+                let check = if *severity == Severity::High {
+                    "open_ai_entry"
+                } else {
+                    "public_entry_no_auth"
+                };
+                out.push(on_node(check, *severity, wf, node, Some(detail)));
             }
         }
     }
@@ -376,7 +377,7 @@ mod tests {
         let active = scan(&snapshot_of(vec![wf("a", true, open, err)]));
         assert_eq!(
             checks(&active),
-            vec!["public_entry_no_auth", "public_entry_no_auth"]
+            vec!["open_ai_entry", "public_entry_no_auth"]
         );
         assert_eq!(
             active[0].severity,
@@ -538,7 +539,7 @@ mod tests {
     fn a_troubled_instance_scores_low_but_never_zero() {
         // The mix found on a real instance: open MCP servers and webhooks, a workflow
         // failing a thousand times, no error workflows, no 2FA, some housekeeping.
-        let mut findings = repeated("public_entry_no_auth", Severity::High, 5);
+        let mut findings = repeated("open_ai_entry", Severity::High, 5);
         findings.extend(repeated("public_entry_no_auth", Severity::Medium, 10));
         findings.extend(repeated("repeated_failures", Severity::High, 1));
         findings.extend(repeated("hardcoded_secret", Severity::Medium, 3));
@@ -554,13 +555,13 @@ mod tests {
         // Closing the open MCP servers is the single biggest improvement.
         let without_open_mcp: Vec<Finding> = findings
             .iter()
-            .filter(|f| !(f.check == "public_entry_no_auth" && f.severity == Severity::High))
+            .filter(|f| f.check != "open_ai_entry")
             .cloned()
             .collect();
         assert_eq!(score(&without_open_mcp), 66);
 
         let hopeless: Vec<Finding> = [
-            "public_entry_no_auth",
+            "open_ai_entry",
             "repeated_failures",
             "stuck_execution",
             "hardcoded_secret",
