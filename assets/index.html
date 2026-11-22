@@ -8,651 +8,734 @@
 <title>nbuddyn</title>
 <style>
   :root {
-    --bg: #0B0F14; --panel: #121820; --line: #223041; --ink: #E6EDF3; --soft: #C5D0DC; --muted: #8B9BB0;
+    --bg: #0A0E13; --surface: #10161D; --raised: #161E28; --line: #1E2A38; --line2: #2E3D50;
+    --ink: #E8EEF4; --soft: #BAC7D4; --muted: #8494A7;
     --red: #FF6B4A; --red-ink: #FF8E73; --red-bg: #2A1410;
     --amber: #F5B83D; --amber-bg: #2A2110;
     --green: #3DD68C; --green-bg: #10231A;
-    --blue-ink: #9DB8E0;
+    --blue: #4A8FE8; --blue-ink: #9DB8E0; --blue-bg: #111C2C;
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --radius: 8px;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
-  main { max-width: 1120px; margin: 0 auto; padding: 0 28px 44px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p { margin: 0; }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--ink); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+  [hidden] { display: none !important; }
   .mono { font-family: var(--mono); }
-  .label { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .eyebrow { font: 500 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .shell { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
 
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 22px 0; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; }
-  header .label { flex: 1 1 160px; }
-  .langs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 4px; padding: 2px; }
-  button { font: 600 12px var(--mono); cursor: pointer; min-height: 40px; border-radius: 2px; }
-  .langs button { background: none; border: 0; color: var(--muted); padding: 0 12px; }
-  .langs button[aria-pressed="true"] { background: var(--amber); color: var(--bg); }
-  .export { background: none; border: 1px solid var(--amber); color: var(--amber); padding: 0 16px; border-radius: 4px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
-  button:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* Top bar */
+  .top { position: sticky; top: 0; z-index: 10; background: rgba(10, 14, 19, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .top .shell { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--mono); letter-spacing: 0.02em; text-decoration: none; }
+  nav { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; align-self: stretch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { display: flex; align-items: center; gap: 8px; padding: 0 12px; text-decoration: none; color: var(--muted); font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav a:hover { color: var(--ink); }
+  nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--amber); }
+  nav .badge { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 10px; background: var(--raised); color: var(--soft); }
+  nav .badge.high { background: var(--red-bg); color: var(--red-ink); }
+  .tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .sweep { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+  .iconbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; min-width: 36px; padding: 0 10px; background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .iconbtn:hover { border-color: var(--line2); color: var(--ink); }
+  .iconbtn[disabled] { opacity: 0.6; cursor: default; }
+  .iconbtn svg { flex: none; }
+  .spin svg { animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  select.lang { height: 36px; background: var(--bg); color: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; font: 500 13px var(--mono); }
 
-  .notice { margin-top: 20px; border: 1px solid var(--red); background: var(--red-bg); border-radius: 4px; padding: 14px 18px; overflow-wrap: anywhere; }
-  .notice .why { color: var(--soft); font-family: var(--mono); font-size: 13px; margin-top: 4px; }
-
-  .hero { display: flex; flex-wrap: wrap; gap: 28px 44px; padding: 36px 0 30px; align-items: center; }
-  .dial { flex: 0 1 300px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .dial svg { width: 280px; max-width: 100%; height: auto; }
-  .score { font-family: var(--mono); font-size: 64px; font-weight: 600; line-height: 1; }
-  .score small { font-size: 20px; color: var(--muted); font-weight: 500; }
-  .zone { font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 6px; }
+  /* Shared pieces */
+  main { padding: 28px 0 56px; }
+  .view > header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 20px; }
+  .view > header h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin-right: auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+  .card > h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); font: 600 13px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); }
+  .card > h2 a { margin-left: auto; font: 500 13px var(--sans); letter-spacing: 0; text-transform: none; color: var(--amber); text-decoration: none; }
+  .card > h2 a:hover { text-decoration: underline; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--line2); background: none; color: var(--ink); font-weight: 500; font-size: 14px; text-decoration: none; white-space: nowrap; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--amber); border-color: var(--amber); color: #1A1305; font-weight: 600; }
+  .btn.primary:hover { background: #FFC956; }
+  .btn.small { min-height: 30px; padding: 0 10px; font-size: 13px; }
+  .btn[disabled] { opacity: 0.6; cursor: default; }
+  .notice { border: 1px solid var(--red); background: var(--red-bg); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 16px; overflow-wrap: anywhere; }
+  .notice .why { color: var(--soft); font: 13px var(--mono); margin-top: 4px; }
+  .empty { padding: 36px 18px; text-align: center; color: var(--muted); }
+  .empty p { max-width: 460px; margin: 0 auto; }
+  .empty .btn { margin-top: 14px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.high { background: var(--red-bg); color: var(--red-ink); }
+  .pill.medium { background: var(--amber-bg); color: var(--amber); }
+  .pill.low { background: var(--blue-bg); color: var(--blue-ink); }
+  .pill.info { background: var(--raised); color: var(--muted); }
+  .pill.ok { background: var(--green-bg); color: var(--green); }
+  .tag { font: 11px var(--mono); border: 1px solid var(--line2); border-radius: 3px; padding: 0 5px; color: var(--muted); white-space: nowrap; }
   .risk { color: var(--red-ink); } .caution { color: var(--amber); } .ok { color: var(--green); } .off { color: var(--muted); }
-  .brief { flex: 1 1 420px; min-width: 0; }
-  h1 { margin: 10px 0 12px; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
-  .lead { margin: 0 0 18px; color: var(--soft); max-width: 600px; }
-  .lights { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; max-width: 640px; }
-  .light { border: 1px solid var(--line); border-radius: 4px; padding: 10px 6px; text-align: center; font-family: var(--mono); }
-  .light .name { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; overflow-wrap: anywhere; }
-  .light .count { font-size: 24px; font-weight: 600; }
-  .light.high { background: var(--red-bg); border-color: var(--red); color: var(--red-ink); }
-  .light.medium { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); }
-  .light.ok { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  input, textarea, select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; min-width: 0; }
+  input::placeholder { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font: 500 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 10px 18px; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+  td { padding: 11px 18px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  tr:last-child td { border-bottom: 0; }
+  th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.num { white-space: nowrap; }
+  td.bad { color: var(--red-ink); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .tile .n { font: 500 26px var(--mono); line-height: 1.2; }
+  .tile .n small { font-size: 14px; color: var(--muted); font-weight: 400; }
+  .tile .t { font-size: 13px; color: var(--muted); }
+  .meter { height: 6px; border-radius: 3px; background: var(--raised); margin-top: 10px; overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 3px; background: var(--blue); }
+  .meter i.warn { background: var(--red); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+  .split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+  .stack { display: grid; gap: 16px; min-width: 0; }
 
-  .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .totals > div { padding: 14px 0; }
-  .totals + .totals { border-top: 0; }
-  .totals .n small { font-size: 14px; color: var(--muted); font-weight: 400; }
-  .totals .n { font-family: var(--mono); font-size: 24px; font-weight: 500; }
-  .totals .t { font-size: 13px; color: var(--muted); }
+  /* Overview */
+  .hero { display: flex; flex-wrap: wrap; gap: 24px 44px; align-items: center; padding: 28px; margin-bottom: 16px; }
+  .dial { flex: 0 1 280px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; }
+  .dial svg { width: 260px; max-width: 100%; height: auto; }
+  .score { font: 600 60px var(--mono); line-height: 1; }
+  .score small { font-size: 18px; color: var(--muted); font-weight: 500; }
+  .zone { font: 500 12px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 6px; }
+  .brief { flex: 1 1 400px; min-width: 0; }
+  .brief h1 { margin: 8px 0 10px; font-size: 32px; line-height: 1.15; font-weight: 600; letter-spacing: -0.015em; }
+  .brief .lead { color: var(--soft); max-width: 580px; margin-bottom: 20px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .lights { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .light { text-align: left; background: var(--surface); border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius); padding: 12px 14px; }
+  .light:hover { background: var(--raised); }
+  .light .name { font: 500 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .light .count { font: 600 24px var(--mono); line-height: 1.3; }
+  .light.high { border-left-color: var(--red); } .light.high .count { color: var(--red-ink); }
+  .light.medium { border-left-color: var(--amber); } .light.medium .count { color: var(--amber); }
+  .light.ok { border-left-color: var(--green); } .light.ok .count { color: var(--green); }
+  .todo { list-style: none; margin: 0; padding: 0; }
+  .todo li { display: flex; gap: 14px; padding: 16px 18px; border-bottom: 1px solid var(--line); align-items: flex-start; }
+  .todo li:last-child { border-bottom: 0; }
+  .todo .num { font: 500 18px var(--mono); color: var(--muted); flex: 0 0 26px; }
+  .todo .body { flex: 1 1 auto; min-width: 0; }
+  .todo h3 { font-size: 16px; font-weight: 600; margin: 6px 0 2px; }
+  .todo p { color: var(--soft); font-size: 14px; }
+  .todo .where { font: 13px var(--mono); color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 16px 18px; margin: 0; font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); text-align: right; overflow-wrap: anywhere; }
+  .spark { display: block; width: 100%; height: 44px; margin-top: 12px; }
+  .week { padding: 16px 18px; }
+  .week + .kv { padding-top: 0; }
+  .week .big { font: 500 26px var(--mono); line-height: 1.2; }
+  .week .big small { font: 14px var(--sans); color: var(--muted); }
+  .inv { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 28px; padding: 14px 18px; font-size: 14px; color: var(--muted); margin-top: 16px; }
+  .inv b { font: 500 15px var(--mono); color: var(--ink); margin-right: 6px; }
 
-  h2 { display: flex; align-items: center; gap: 10px; margin: 32px 0 4px; font: 600 13px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; }
-  h2 i { width: 10px; height: 10px; flex: 0 0 10px; }
-  h2.high { color: var(--red-ink); } h2.high i { background: var(--red); border-radius: 50%; }
-  h2.medium { color: var(--amber); } h2.medium i { background: var(--amber); }
-  h2.low { color: var(--blue-ink); } h2.low i { border: 2px solid var(--blue-ink); }
-  h2.info { color: var(--muted); } h2.info i { height: 2px; background: var(--muted); }
+  /* Findings */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--line); background: none; color: var(--soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .chip:hover { border-color: var(--line2); }
+  .chip b { font: 600 12px var(--mono); color: var(--muted); }
+  .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .chip[aria-pressed="true"] b { color: var(--bg); }
+  .chip.active-filter { border-color: var(--amber); color: var(--amber); }
+  .searchbox { flex: 1 1 240px; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 18px; color: var(--muted); }
+  .searchbox:focus-within { border-color: var(--amber); }
+  .searchbox input { flex: 1; border: 0; background: none; padding: 0; outline: none; }
+  .gcard { margin-bottom: 10px; border-left-width: 3px; overflow: hidden; }
+  .gcard.high { border-left-color: var(--red); } .gcard.medium { border-left-color: var(--amber); }
+  .gcard.low { border-left-color: var(--blue); } .gcard.info { border-left-color: var(--line2); }
+  .ghead { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: none; border: 0; text-align: left; }
+  .ghead:hover { background: var(--raised); }
+  .ghead h3 { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 600; }
+  .ghead .chev { flex: none; display: flex; color: var(--muted); transition: transform 0.15s; }
+  .ghead[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .gbody { border-top: 1px solid var(--line); }
+  .advice { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 12px 18px; background: var(--bg); color: var(--soft); font-size: 14px; border-bottom: 1px solid var(--line); }
+  .advice b { flex: none; font: 500 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .advice span { flex: 1 1 260px; }
+  .items { list-style: none; margin: 0; padding: 0; }
+  .items li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  .items li:last-child { border-bottom: 0; }
+  .items .what { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+  .items .what .node { color: var(--soft); }
+  .items .what .tag { margin-left: 8px; }
+  .items .detail { flex: 1 1 200px; min-width: 0; font: 13px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .items .act { flex: none; margin-left: auto; }
+  .items .note { flex: 1 1 100%; color: var(--soft); font-size: 14px; }
+  .items .note small { color: var(--muted); font-family: var(--mono); margin-left: 8px; }
+  .acceptform { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 2px; }
+  .acceptform input { flex: 1 1 220px; }
+  .morebar { padding: 8px 18px; border-top: 1px solid var(--line); }
+  .linkbtn { background: none; border: 0; padding: 4px 0; color: var(--amber); font-size: 13px; font-weight: 500; }
+  .linkbtn:hover { text-decoration: underline; }
+  .hint { font-size: 13px; color: var(--muted); margin: 14px 2px 0; }
 
-  .group { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 18px 0; border-bottom: 1px solid var(--line); }
-  .group .num { font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--muted); flex: 0 0 44px; }
-  .group .what { flex: 1 1 420px; min-width: 0; }
-  h3 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
-  .group p { margin: 0; color: var(--soft); }
-  .where { flex: 0 1 300px; min-width: 0; font-family: var(--mono); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-  .where div { padding: 1px 0; }
-  .tag { border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-left: 6px; font-size: 11px; }
-  summary { cursor: pointer; color: var(--amber); padding: 6px 0; min-height: 32px; }
-  h2.plain { color: var(--ink); flex-wrap: wrap; margin-top: 44px; }
-  .ranges { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 4px; padding: 2px; margin-left: auto; }
-  .ranges button { background: none; border: 0; color: var(--muted); padding: 0 12px; min-height: 32px; letter-spacing: 0; text-transform: none; }
-  .ranges button[aria-pressed="true"] { background: var(--line); color: var(--ink); }
-  #history .totals { margin-top: 12px; }
-  #history.loading figure, #history.loading table { opacity: 0.5; }
-  figure { margin: 26px 0 0; position: relative; }
-  figcaption { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 8px; font-size: 15px; font-weight: 600; }
-  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-weight: 400; color: var(--soft); }
+  /* History */
+  .ranges { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+  .ranges button { background: none; border: 0; color: var(--muted); padding: 0 12px; min-height: 30px; font: 500 13px var(--mono); border-radius: 4px; }
+  .ranges button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+  figure { margin: 0; position: relative; padding: 16px 18px 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 400 13px var(--sans); letter-spacing: 0; text-transform: none; color: var(--soft); margin-left: auto; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
   .chart { display: block; width: 100%; }
   .chart text { font: 11px var(--mono); fill: var(--muted); }
   .chart .grid { stroke: var(--line); stroke-width: 1; }
   .chart .end { fill: var(--ink); font-size: 12px; font-weight: 600; }
-  .tip { position: absolute; z-index: 2; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
-  .tip .when { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-bottom: 2px; }
+  .tip { position: absolute; z-index: 2; pointer-events: none; background: var(--raised); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; font-size: 13px; white-space: nowrap; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5); }
+  .tip .when { color: var(--muted); font: 12px var(--mono); margin-bottom: 2px; }
   .tip b { font-weight: 600; margin-right: 6px; }
   .tip .key { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 6px; }
   .tip span { color: var(--soft); }
-  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14px; }
-  th { text-align: left; font: 500 12px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
-  td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-  th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; padding-right: 0; padding-left: 12px; }
-  td.num { white-space: nowrap; }
-  td.bad { color: var(--red-ink); }
-  .daytable { margin-top: 10px; font-size: 13px; }
-  .daytable table { margin-top: 4px; max-width: 520px; }
-  .note { margin-top: 14px; font-size: 13px; color: var(--muted); }
-  .morerows { background: none; border: 0; color: var(--amber); padding: 6px 0; margin-top: 4px; }
-  @media (max-width: 560px) {
-    .optional { display: none; }
-    th { font-size: 11px; letter-spacing: 0; vertical-align: bottom; }
-    th.num, td.num { padding-left: 8px; }
-  }
-  a { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
-  a:hover { color: var(--ink); text-decoration-color: var(--ink); }
-  a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .where div { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
-  .where .text { flex: 1 1 160px; min-width: 0; }
-  .linkbtn { background: none; border: 0; padding: 0; min-height: 28px; color: var(--amber); font: 500 12px var(--mono); letter-spacing: 0.02em; }
-  .linkbtn:hover { text-decoration: underline; }
-  .acceptform { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
-  input, textarea, select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
-  .acceptform input { flex: 1 1 200px; }
-  .solid { background: var(--amber); border: 1px solid var(--amber); color: var(--bg); padding: 0 14px; border-radius: 4px; }
-  .ghost { background: none; border: 1px solid var(--line); color: var(--soft); padding: 0 14px; border-radius: 4px; }
-  .accepted { margin-top: 30px; }
-  .accepted > summary { font: 600 13px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-  .accepted .note { margin: 2px 0 6px; }
-  .accepted .row { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .accepted .row .what { flex: 1 1 360px; min-width: 0; }
-  .accepted .row .where { flex: 1 1 260px; }
-  .accepted .why { color: var(--soft); font-size: 14px; }
-  .accepted .when { color: var(--muted); font-family: var(--mono); font-size: 12px; }
-  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0; width: min(620px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
-  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-  dialog form { padding: 22px 24px; }
-  dialog h2 { margin: 0 0 14px; color: var(--ink); }
-  .field { margin-bottom: 16px; }
-  .field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-  .field input, .field textarea, .field select { width: 100%; }
-  .field textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
-  .field .help { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .field .bad { font-size: 13px; color: var(--red-ink); margin-top: 4px; }
-  .field.wrong input, .field.wrong textarea, .field.wrong select { border-color: var(--red); }
-  .envonly { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 14px; font-size: 13px; color: var(--muted); }
-  .envonly div { font-family: var(--mono); overflow-wrap: anywhere; padding: 1px 0; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 18px; }
-  .actions .status { margin-right: auto; font-size: 13px; color: var(--red-ink); }
-  footer { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+  .view.loading .card { opacity: 0.55; }
+  details.daytable { border-top: 1px solid var(--line); }
+  details.daytable > summary { cursor: pointer; padding: 12px 18px; color: var(--amber); font-size: 13px; font-weight: 500; }
 
+  /* Settings */
+  .settings { max-width: 760px; }
+  .field { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .field:last-child { border-bottom: 0; }
+  .field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .field input, .field textarea, .field select { width: 100%; }
+  .field textarea { font: 13px var(--mono); resize: vertical; }
+  .field .help { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .field .bad { font-size: 13px; color: var(--red-ink); margin-top: 6px; }
+  .field.wrong input, .field.wrong textarea, .field.wrong select { border-color: var(--red); }
+  .savebar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+  .savebar .status { margin-right: auto; font-size: 13px; color: var(--red-ink); }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20; max-width: calc(100vw - 32px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-weight: 500; font-size: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+  footer { margin-top: 28px; font: 12px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
+  .printhead { display: none; }
+
+  @media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 720px) {
+    .shell { padding: 0 16px; }
+    .top .shell { padding-top: 8px; }
+    nav { order: 3; flex: 1 1 100%; height: 44px; margin: 0 -16px; padding: 0 8px; }
+    .sweep, .iconbtn .label { display: none; }
+    .hero { padding: 20px; }
+    .brief h1 { font-size: 26px; }
+    th, td { padding-left: 12px; padding-right: 12px; }
+    .optional { display: none; }
+    .grid2 { grid-template-columns: minmax(0, 1fr); }
+    .ghead { flex-wrap: wrap; gap: 6px 10px; }
+    .ghead .pill { order: 0; margin-right: auto; }
+    .ghead .tag { order: 1; } .ghead .chev { order: 2; }
+    .ghead h3 { order: 3; flex: 1 1 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   @media print {
-    :root { --bg: #fff; --panel: #fff; --line: #c9ced6; --ink: #111827; --soft: #374151; --muted: #4b5563;
-            --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff;
-            --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; }
-    .langs, .export, .ranges, .tip, .morerows, .linkbtn, .acceptform, dialog { display: none; }
+    :root { --bg: #fff; --surface: #fff; --raised: #f3f4f6; --line: #d5d9e0; --line2: #b9c0cb; --ink: #111827; --soft: #374151; --muted: #4b5563;
+            --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff; --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; --blue-bg: #fff; }
+    .top, .filters, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
+    .view { margin-bottom: 28px; }
+    .printhead { display: block; font: 600 16px var(--mono); margin-bottom: 16px; }
+    .gcard, figure, .tile, .todo li { break-inside: avoid; }
     a { text-decoration: none; }
-    tr[hidden] { display: table-row; }
-    figure { break-inside: avoid; }
-    details[data-more] > summary { display: none; }
-    .group { break-inside: avoid; }
+    main { padding-top: 0; }
   }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="brand">
-      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="15.5" fill="none" stroke="#F5B83D" stroke-width="1.5"/><path d="M5 17h8M21 17h8M17 5v4M17 25v4" stroke="#F5B83D" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="17" r="3" fill="#F5B83D"/></svg>
+<div class="top">
+  <div class="shell">
+    <a class="brand" href="#/overview">
+      <svg width="30" height="30" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="15.5" fill="none" stroke="#F5B83D" stroke-width="1.5"/><path d="M5 17h8M21 17h8M17 5v4M17 25v4" stroke="#F5B83D" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="17" r="3" fill="#F5B83D"/></svg>
       nbuddyn
+    </a>
+    <nav id="nav"></nav>
+    <div class="tools">
+      <span class="sweep" id="sweep"></span>
+      <button type="button" class="iconbtn" id="rescan"></button>
+      <button type="button" class="iconbtn" id="export"></button>
+      <select class="lang" id="lang"><option value="es">ES</option><option value="en">EN</option><option value="pt">PT</option></select>
     </div>
-    <span class="label" id="tagline"></span>
-    <div class="langs" role="group" id="langs">
-      <button type="button" data-lang="es">ES</button>
-      <button type="button" data-lang="en">EN</button>
-      <button type="button" data-lang="pt">PT</button>
-    </div>
-    <button type="button" class="export" id="openSettings" hidden></button>
-    <button type="button" class="export" id="export"></button>
-  </header>
-
+  </div>
+</div>
+<main class="shell">
+  <div class="printhead" id="printhead"></div>
   <div id="notice"></div>
-
-  <section class="hero">
-    <div class="dial">
-      <svg viewBox="0 0 260 150" role="img" id="gauge">
-        <path d="M30 130 A100 100 0 0 1 160.9 34.9" fill="none" stroke="var(--red)" stroke-width="10"/>
-        <path d="M160.9 34.9 A100 100 0 0 1 219.1 84.6" fill="none" stroke="var(--amber)" stroke-width="10"/>
-        <path d="M219.1 84.6 A100 100 0 0 1 230 130" fill="none" stroke="var(--green)" stroke-width="10"/>
-        <path d="M22 130H14M53.6 53.6L48 48M130 22V14M206.4 53.6L212 48M238 130H246" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/>
-        <line id="needle" x1="130" y1="130" x2="46" y2="130" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="130" cy="130" r="8" fill="var(--bg)" stroke="var(--ink)" stroke-width="3"/>
-      </svg>
-      <div class="score off" id="score">–<small>/100</small></div>
-      <div class="zone off" id="zone"></div>
-    </div>
-    <div class="brief">
-      <div class="label" id="sweep"></div>
-      <h1 id="headline"></h1>
-      <p class="lead" id="lead"></p>
-      <div class="lights" id="lights"></div>
-    </div>
-  </section>
-
-  <div class="totals" id="totals"></div>
-  <div class="totals" id="cluster" hidden></div>
-  <div id="groups"></div>
-  <details class="accepted" id="accepted" hidden><summary id="acceptedTitle"></summary><p class="note" id="acceptedHelp"></p><div id="acceptedRows"></div></details>
-  <section id="history" hidden>
-    <h2 class="plain"><span id="historyTitle"></span><div class="ranges" role="group" id="ranges"></div></h2>
-    <div id="historyNotice"></div>
-    <div class="totals" id="historyTotals"></div>
-    <figure>
-      <figcaption><span id="runsTitle"></span><span class="legend" id="runsLegend"></span></figcaption>
-      <svg class="chart" id="runsChart" role="img"></svg>
-    </figure>
-    <figure>
-      <figcaption><span id="scoreTitle"></span></figcaption>
-      <svg class="chart" id="scoreChart" role="img"></svg>
-    </figure>
-    <details class="daytable"><summary id="dayTableTitle"></summary><div id="dayTable"></div></details>
-    <div id="workflowTable"></div>
-    <div class="note" id="historyNote"></div>
-  </section>
+  <section class="view" id="view-overview"></section>
+  <section class="view" id="view-findings" hidden></section>
+  <section class="view" id="view-cluster" hidden></section>
+  <section class="view" id="view-history" hidden></section>
+  <section class="view" id="view-settings" hidden></section>
   <footer id="footer"></footer>
 </main>
-<dialog id="settings" aria-labelledby="settingsTitle">
-  <form method="dialog" id="settingsForm" novalidate>
-    <h2 id="settingsTitle"></h2>
-    <div id="settingsNotice"></div>
-    <div id="settingsFields"></div>
-    <div class="envonly" id="envOnly"></div>
-    <div class="actions">
-      <span class="status" id="settingsStatus" role="status"></span>
-      <button type="button" class="ghost" id="settingsCancel"></button>
-      <button type="submit" class="solid" id="settingsSave"></button>
-    </div>
-  </form>
-</dialog>
 <script>
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var stored = null;
-  try { stored = localStorage.getItem("nbuddyn.lang"); } catch (e) {}
-  var lang = stored || (navigator.language || "en").slice(0, 2);
-  if (["en", "es", "pt"].indexOf(lang) < 0) lang = "en";
-
-  function el(tag, cls, text) {
-    var node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined && text !== null) node.textContent = String(text);
-    return node;
-  }
-
-  var report = null;
-  var busy = false;
-
-  function send(path, body) {
-    return fetch(path, {
-      method: "POST", credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Nbuddyn": "1" },
-      body: JSON.stringify(body)
-    }).then(function (res) {
-      return res.json().catch(function () { return { ok: false }; });
-    });
-  }
-
-  /* "Workflow › node › detail", with the workflow as a link when n8n's address is known. */
-  function describe(item, ui) {
-    var text = el("span", "text");
-    var rest = [item.node, item.detail].filter(Boolean);
-    if (item.workflow && item.path && report && report.n8n_url) {
-      var link = el("a", null, item.workflow);
-      link.href = report.n8n_url + item.path;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.title = ui.open_in_n8n;
-      text.appendChild(link);
-    } else if (item.workflow) {
-      rest.unshift(item.workflow);
-    }
-    if (rest.length) text.appendChild(document.createTextNode((text.firstChild ? " › " : "") + rest.join(" › ")));
-    if (item.active === false) text.appendChild(el("span", "tag", ui.inactive));
-    return text;
-  }
-
-  function itemLine(item, ui) {
-    var line = el("div");
-    line.appendChild(describe(item, ui));
-    if (!report || !report.writable) return line;
-    var open = el("button", "linkbtn", ui.accept);
-    open.type = "button";
-    open.addEventListener("click", function () {
-      busy = true;
-      open.hidden = true;
-      var form = el("form", "acceptform");
-      var note = el("input");
-      note.type = "text";
-      note.maxLength = 300;
-      note.placeholder = ui.accept_note;
-      note.setAttribute("aria-label", ui.accept_note);
-      var ok = el("button", "solid", ui.confirm);
-      ok.type = "submit";
-      var cancel = el("button", "ghost", ui.cancel);
-      cancel.type = "button";
-      cancel.addEventListener("click", function () { form.remove(); open.hidden = false; busy = false; open.focus(); });
-      form.addEventListener("submit", function (ev) {
-        ev.preventDefault();
-        ok.disabled = true;
-        send("api/accept", { key: item.key, note: note.value }).then(function (answer) {
-          busy = false;
-          if (answer.ok) return load();
-          ok.disabled = false;
-          note.setCustomValidity(ui.save_failed);
-          note.reportValidity();
-        });
-      });
-      form.appendChild(note); form.appendChild(ok); form.appendChild(cancel);
-      line.appendChild(form);
-      note.focus();
-    });
-    line.appendChild(open);
-    return line;
-  }
-
-  function renderAccepted(r) {
-    var ui = r.ui, box = $("accepted");
-    box.hidden = !(r.available && r.accepted.length);
-    if (box.hidden) return;
-    $("acceptedTitle").textContent = ui.accepted + " (" + r.accepted.length + ")";
-    $("acceptedHelp").textContent = ui.accepted_help;
-    var rows = $("acceptedRows");
-    rows.replaceChildren();
-    r.accepted.forEach(function (a) {
-      var row = el("div", "row");
-      var what = el("div", "what");
-      what.appendChild(el("div", null, a.title));
-      if (a.note) what.appendChild(el("div", "why", "“" + a.note + "”"));
-      if (a.at) what.appendChild(el("div", "when", new Date(a.at * 1000).toLocaleDateString(r.lang)));
-      row.appendChild(what);
-      var where = el("div", "where");
-      var line = el("div");
-      line.appendChild(describe(a, ui));
-      if (r.writable) {
-        var restore = el("button", "linkbtn", ui.restore);
-        restore.type = "button";
-        restore.addEventListener("click", function () {
-          restore.disabled = true;
-          send("api/unaccept", { key: a.key }).then(load);
-        });
-        line.appendChild(restore);
-      }
-      where.appendChild(line);
-      row.appendChild(where);
-      rows.appendChild(row);
-    });
-  }
-
-  var FIELDS = [["n8n_url", "url"], ["lang", "select"], ["interval_seconds", "number"], ["timezone", "text"],
-                ["history_days", "number"], ["runner_urls", "area"], ["redis_url", "text"]];
-
-  function openSettings() {
-    var ui = lastUi;
-    if (!ui) return;
-    fetch("api/settings", { credentials: "same-origin" })
-      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(function (view) {
-        busy = true;
-        $("settingsTitle").textContent = ui.settings;
-        $("settingsSave").textContent = ui.save;
-        $("settingsSave").hidden = !view.writable;
-        $("settingsCancel").textContent = ui.cancel;
-        $("settingsStatus").textContent = "";
-        var notice = $("settingsNotice");
-        notice.replaceChildren();
-        if (!view.writable) {
-          var box = el("div", "notice");
-          box.appendChild(el("div", null, ui.settings_readonly));
-          if (view.error) box.appendChild(el("div", "why", view.error));
-          box.style.margin = "0 0 16px";
-          notice.appendChild(box);
-        }
-        var fields = $("settingsFields");
-        fields.replaceChildren();
-        FIELDS.forEach(function (f) {
-          var name = f[0], wrap = el("div", "field");
-          wrap.setAttribute("data-field", name);
-          var label = el("label", null, ui["set_" + name]);
-          label.htmlFor = "set_" + name;
-          var input;
-          if (f[1] === "select") {
-            input = el("select");
-            [["en", "English"], ["es", "Español"], ["pt", "Português"]].forEach(function (o) {
-              var option = el("option", null, o[1]);
-              option.value = o[0];
-              input.appendChild(option);
-            });
-          } else if (f[1] === "area") {
-            input = el("textarea");
-            input.rows = 4;
-            input.spellcheck = false;
-          } else {
-            input = el("input");
-            input.type = f[1] === "number" ? "number" : "text";
-            if (f[1] === "url") input.inputMode = "url";
-            input.spellcheck = false;
-            input.autocomplete = "off";
-          }
-          input.id = "set_" + name;
-          input.name = name;
-          input.value = view.values[name];
-          input.disabled = !view.writable;
-          wrap.appendChild(label);
-          wrap.appendChild(input);
-          if (ui["help_" + name]) wrap.appendChild(el("div", "help", ui["help_" + name]));
-          fields.appendChild(wrap);
-        });
-        var env = $("envOnly");
-        env.replaceChildren(el("div", null, ui.env_only + ":"));
-        env.appendChild(el("div", null, ui.env_database + " · " + view.database));
-        env.appendChild(el("div", null, ui.env_mcp + " · " + (view.mcp ? ui.on : ui.off)));
-        env.appendChild(el("div", null, "nbuddyn " + view.version));
-        $("settings").showModal();
-      })
-      .catch(function (err) { console.error("nbuddyn", err); });
-  }
-
-  $("openSettings").addEventListener("click", openSettings);
-  $("settingsCancel").addEventListener("click", function () { $("settings").close(); });
-  $("settings").addEventListener("close", function () { busy = false; });
-  $("settingsForm").addEventListener("submit", function (ev) {
-    ev.preventDefault();
-    var ui = lastUi, values = {};
-    FIELDS.forEach(function (f) { values[f[0]] = $("set_" + f[0]).value; });
-    $("settingsSave").disabled = true;
-    $("settingsStatus").textContent = "";
-    Array.prototype.forEach.call(document.querySelectorAll("#settingsFields .field"), function (w) {
-      w.classList.remove("wrong");
-      var old = w.querySelector(".bad");
-      if (old) old.remove();
-    });
-    send("api/settings", values).then(function (answer) {
-      $("settingsSave").disabled = false;
-      if (answer.ok) {
-        $("settings").close();
-        lang = values.lang;
-        try { localStorage.setItem("nbuddyn.lang", lang); } catch (e) {}
-        return setTimeout(load, 1500);
-      }
-      (answer.wrong || []).forEach(function (name) {
-        var w = document.querySelector('#settingsFields [data-field="' + name + '"]');
-        if (!w) return;
-        w.classList.add("wrong");
-        w.insertBefore(el("div", "bad", ui.invalid), w.querySelector(".help"));
-      });
-      var first = document.querySelector("#settingsFields .wrong input, #settingsFields .wrong textarea, #settingsFields .wrong select");
-      if (first) first.focus();
-      else $("settingsStatus").textContent = ui.save_failed + (answer.error ? ": " + answer.error : "");
-    });
-  });
-
-  function setNeedle(score, available) {
-    var shown = available ? Math.max(0, Math.min(100, score)) : 0;
-    var angle = Math.PI * (1 - shown / 100);
-    $("needle").setAttribute("x2", (130 + 84 * Math.cos(angle)).toFixed(1));
-    $("needle").setAttribute("y2", (130 - 84 * Math.sin(angle)).toFixed(1));
-  }
-
-  function render(r) {
-    var ui = r.ui;
-    report = r;
-    $("openSettings").textContent = ui.settings;
-    $("openSettings").hidden = false;
-    renderAccepted(r);
-    document.documentElement.lang = r.lang;
-    $("tagline").textContent = ui.tagline;
-    $("export").textContent = ui.export;
-    $("langs").setAttribute("aria-label", ui.language);
-    Array.prototype.forEach.call($("langs").children, function (b) {
-      b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === r.lang));
-    });
-    $("footer").textContent = ui.read_only;
-
-    var notice = $("notice");
-    notice.replaceChildren();
-    if (!r.available || r.error) {
-      var box = el("div", "notice");
-      box.appendChild(el("div", null, ui.unavailable));
-      if (r.error) box.appendChild(el("div", "why", r.error));
-      notice.appendChild(box);
-    }
-    if (r.cluster_error) {
-      var redisBox = el("div", "notice");
-      redisBox.appendChild(el("div", null, ui.cluster_unavailable));
-      redisBox.appendChild(el("div", "why", r.cluster_error));
-      notice.appendChild(redisBox);
-    }
-
-    var zoneClass = r.available ? r.zone : "off";
-    var score = $("score");
-    score.className = "score " + zoneClass;
-    score.replaceChildren(document.createTextNode(r.available ? r.score : "–"), el("small", null, "/100"));
-    var zone = $("zone");
-    zone.className = "zone " + zoneClass;
-    zone.textContent = r.available ? ui["zone_" + r.zone] : "";
-    setNeedle(r.score, r.available);
-    $("gauge").setAttribute("aria-label", ui.gauge + ": " + (r.available ? r.score + "/100, " + ui["zone_" + r.zone] : "–"));
-
-    $("sweep").textContent = r.generated_at
-      ? ui.sweep + " · " + new Date(r.generated_at * 1000).toLocaleString(r.lang)
-      : "";
-    $("headline").textContent = r.available ? r.headline : ui.unavailable;
-    $("lead").textContent = r.available ? r.lead : "";
-
-    var lights = $("lights");
-    lights.replaceChildren();
-    if (r.available) {
-      r.lights.forEach(function (l) {
-        var light = el("div", "light " + l.level);
-        light.appendChild(el("div", "name", ui["light_" + l.key]));
-        light.appendChild(el("div", "count", l.count === 0 ? ui.ok : l.count));
-        lights.appendChild(light);
-      });
-    }
-
-    var totals = $("totals");
-    totals.replaceChildren();
-    if (r.available) {
-      [[r.totals.urgent, ui.total_urgent, "risk"], [r.totals.important, ui.total_important, "caution"],
-       [r.totals.minor, ui.total_minor, ""], [r.inventory.workflows, ui.workflows_reviewed, ""],
-       [r.inventory.nodes, ui.nodes_reviewed, ""]].forEach(function (t) {
-        var cell = el("div");
-        cell.appendChild(el("div", "n " + (t[0] > 0 ? t[2] : ""), t[0]));
-        cell.appendChild(el("div", "t", t[1]));
-        totals.appendChild(cell);
-      });
-    }
-
-    var cluster = $("cluster");
-    cluster.replaceChildren();
-    var cells = [];
-    if (r.available && r.cluster) {
-      var c = r.cluster;
-      var memory = c.redis_max_mb > 0 ? c.redis_used_mb + " / " + c.redis_max_mb + " MB" : c.redis_used_mb + " MB";
-      cells.push(
-        [c.waiting, ui.queue_waiting, c.waiting >= 100 ? "caution" : ""],
-        [c.active, ui.queue_active, ""],
-        [c.workers, ui.workers, c.main + c.workers + c.webhooks > 0 && c.workers === 0 ? "risk" : ""],
-        [c.webhooks, ui.webhooks, ""]);
-    }
-    if (r.available && r.runners) {
-      cells.push([r.runners.alive + " / " + r.runners.total, ui.runners, r.runners.alive < r.runners.total ? "risk" : ""]);
-    }
-    if (r.available && r.cluster) {
-      cells.push([memory, ui.redis_memory + (r.cluster.redis_max_mb > 0 ? "" : " · " + ui.no_limit), ""]);
-    }
-    cluster.hidden = cells.length === 0;
-    cells.forEach(function (t) {
-      var cell = el("div");
-      cell.appendChild(el("div", "n " + t[2], t[0]));
-      cell.appendChild(el("div", "t", t[1]));
-      cluster.appendChild(cell);
-    });
-
-    var out = $("groups");
-    out.replaceChildren();
-    var n = 0;
-    [["high", ui.urgent], ["medium", ui.important], ["low", ui.minor], ["info", ui.info]].forEach(function (sev) {
-      var groups = r.groups.filter(function (g) { return g.severity === sev[0]; });
-      if (groups.length === 0) return;
-      var heading = el("h2", sev[0]);
-      heading.appendChild(el("i"));
-      heading.appendChild(document.createTextNode(sev[1]));
-      out.appendChild(heading);
-
-      groups.forEach(function (g) {
-        n += 1;
-        var row = el("div", "group");
-        row.appendChild(el("span", "num", n < 10 ? "0" + n : n));
-        var what = el("div", "what");
-        what.appendChild(el("h3", null, g.title));
-        what.appendChild(el("p", null, g.advice));
-        row.appendChild(what);
-
-        var where = el("div", "where");
-        var first = sev[0] === "info" ? 0 : 3;
-        g.items.slice(0, first).forEach(function (item) { where.appendChild(itemLine(item, ui)); });
-        var rest = g.items.slice(first);
-        if (rest.length > 0) {
-          var more = el("details");
-          more.setAttribute("data-more", "");
-          more.appendChild(el("summary", null, first > 0 ? "+ " + rest.length + " " + ui.more : ui.show + " (" + rest.length + ")"));
-          rest.forEach(function (item) { more.appendChild(itemLine(item, ui)); });
-          where.appendChild(more);
-        }
-        row.appendChild(where);
-        out.appendChild(row);
-      });
-    });
-  }
-
   var SVG = "http://www.w3.org/2000/svg";
+  var VIEWS = ["overview", "findings", "cluster", "history", "settings"];
+  var SEVERITIES = ["high", "medium", "low", "info"];
   var SERIES = { ok: "#4A8FE8", failed: "#E85D3F", canceled: "#6B7A8C" };
   var RANGES = [7, 30, 90];
-  var range = 30;
-  try { range = Number(localStorage.getItem("nbuddyn.range")) || 30; } catch (e) {}
-  if (RANGES.indexOf(range) < 0) range = 30;
-  var lastUi = null;
-  var lastHistory = null;
+  var ICONS = {
+    refresh: "M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3",
+    download: "M8 2.5v8m0 0L5 7.5m3 3l3-3M3 13.5h10",
+    chevron: "M6 3.5L10.5 8 6 12.5",
+    search: "M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10zm3.5-1.5l3 3",
+    x: "M4 4l8 8M12 4l-8 8"
+  };
 
+  function stored(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+
+  var state = {
+    lang: stored("nbuddyn.lang") || (navigator.language || "en").slice(0, 2),
+    view: "overview",
+    report: null, history: null, week: null,
+    range: Number(stored("nbuddyn.range")) || 30,
+    filter: { severity: "all", query: "", light: null },
+    open: {}, expanded: {},
+    busy: false, scanning: false, printing: false
+  };
+  if (["en", "es", "pt"].indexOf(state.lang) < 0) state.lang = "en";
+  if (RANGES.indexOf(state.range) < 0) state.range = 30;
+
+  /* Builds an element. `props` is a class name or an object of properties. */
+  function h(tag, props) {
+    var node = document.createElement(tag);
+    if (typeof props === "string") node.className = props;
+    else if (props) Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v === undefined || v === null || v === false) return;
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = String(v);
+      else if (k === "on") Object.keys(v).forEach(function (ev) { node.addEventListener(ev, v[ev]); });
+      else if (k in node && k !== "list" && k !== "style") node[k] = v;
+      else node.setAttribute(k, v === true ? "" : v);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var kid = arguments[i];
+      if (kid === undefined || kid === null || kid === false) continue;
+      node.appendChild(typeof kid === "object" ? kid : document.createTextNode(String(kid)));
+    }
+    return node;
+  }
   function svg(tag, attrs, text) {
     var node = document.createElementNS(SVG, tag);
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
     if (text !== undefined) node.textContent = String(text);
     return node;
   }
+  function icon(name, size) {
+    var s = svg("svg", { width: size || 16, height: size || 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" });
+    s.appendChild(svg("path", { d: ICONS[name] }));
+    return s;
+  }
+  function fill(node) {
+    node.replaceChildren();
+    for (var i = 1; i < arguments.length; i++) if (arguments[i]) node.appendChild(arguments[i]);
+    return node;
+  }
 
+  function get(path) {
+    return fetch(path, { credentials: "same-origin" }).then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); });
+  }
+  function send(path, body) {
+    return fetch(path, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Nbuddyn": "1" },
+      body: JSON.stringify(body || {})
+    }).then(function (res) { return res.json().catch(function () { return { ok: false }; }); });
+  }
+
+  var toastTimer = null;
+  function toast(text) {
+    var old = document.querySelector(".toast");
+    if (old) old.remove();
+    document.body.appendChild(h("div", { class: "toast", role: "status", text: text }));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { var t = document.querySelector(".toast"); if (t) t.remove(); }, 3200);
+  }
+
+  function num(n) { return Number(n || 0).toLocaleString(state.lang); }
   function compact(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
     if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "K";
-    return n.toLocaleString(lang);
+    return num(n);
   }
-
-  function dayLabel(day, long) {
-    var date = new Date(day + "T00:00:00");
-    return date.toLocaleDateString(lang, long ? { weekday: "short", day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
-  }
-
-  /* A round number at or above the largest value, so the axis reads cleanly. */
-  function niceTop(value) {
-    if (value <= 4) return 4;
-    var unit = Math.pow(10, Math.floor(Math.log10(value)));
-    var steps = [1, 2, 4, 5, 10];
-    for (var i = 0; i < steps.length; i++) if (steps[i] * unit >= value) return steps[i] * unit;
-    return 10 * unit;
-  }
-
   function percent(part, whole) {
     if (!whole) return "–";
     var p = 100 * part / whole;
     return (p > 0 && p < 1 ? "<1" : Math.round(p)) + "%";
   }
+  function dayLabel(day, long) {
+    return new Date(day + "T00:00:00").toLocaleDateString(state.lang, long ? { weekday: "short", day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+  }
+  function relative(seconds) {
+    var ago = Math.max(0, Math.round(Date.now() / 1000 - seconds));
+    try {
+      var f = new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" });
+      if (ago < 45) return f.format(0, "second");
+      if (ago < 3600) return f.format(-Math.round(ago / 60), "minute");
+      if (ago < 86400) return f.format(-Math.round(ago / 3600), "hour");
+      return f.format(-Math.round(ago / 86400), "day");
+    } catch (e) { return new Date(seconds * 1000).toLocaleString(state.lang); }
+  }
+  function runsOf(c) { return (c.ok || 0) + (c.failed || 0) + (c.canceled || 0); }
+  function sevLabel(ui, sev) { return { high: ui.urgent, medium: ui.important, low: ui.minor, info: ui.info }[sev]; }
 
-  /* A column with a rounded top and a square foot on the baseline. */
-  function columnPath(x, y, w, h, round) {
-    var r = round ? Math.min(4, w / 2, h) : 0;
-    return "M" + x + " " + (y + h) + "V" + (y + r) + "a" + r + " " + r + " 0 0 1 " + r + " " + -r +
-      "H" + (x + w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r + "V" + (y + h) + "Z";
+  function toFindings(filter) {
+    state.filter = { severity: filter.severity || "all", query: "", light: filter.light || null };
+    if (filter.open) state.open[filter.open] = true;
+    location.hash = "#/findings";
+    renderFindings();
   }
 
+  /* "Workflow › node", the workflow as a link when n8n's address is known. */
+  function whereOf(item, ui) {
+    var r = state.report, box = h("span");
+    if (item.workflow) {
+      if (item.path && r.n8n_url) {
+        box.appendChild(h("a", { href: r.n8n_url + item.path, target: "_blank", rel: "noopener noreferrer", title: ui.open_in_n8n, text: item.workflow }));
+      } else box.appendChild(document.createTextNode(item.workflow));
+    }
+    if (item.node) box.appendChild(h("span", "node", (item.workflow ? " › " : "") + item.node));
+    return box;
+  }
+
+  /* ---------- Top bar ---------- */
+  function renderChrome() {
+    var r = state.report, ui = r.ui;
+    document.documentElement.lang = r.lang;
+    $("lang").value = r.lang;
+    $("lang").setAttribute("aria-label", ui.language);
+    var urgent = r.available ? r.totals.urgent : 0;
+    var open = r.available ? r.totals.urgent + r.totals.important + r.totals.minor + r.totals.info : 0;
+    var nav = $("nav");
+    nav.replaceChildren();
+    [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["history", ui.history], ["settings", ui.settings]].forEach(function (t) {
+      var link = h("a", { href: "#/" + t[0], text: t[1] });
+      if (t[0] === state.view) link.setAttribute("aria-current", "page");
+      if (t[2]) link.appendChild(h("span", "badge" + (urgent ? " high" : ""), t[2]));
+      nav.appendChild(link);
+    });
+    $("sweep").textContent = r.generated_at ? ui.sweep + " " + relative(r.generated_at) : "";
+    $("sweep").title = r.generated_at ? new Date(r.generated_at * 1000).toLocaleString(r.lang) : "";
+    var rescan = $("rescan");
+    fill(rescan, icon("refresh"), h("span", "label", state.scanning ? ui.scanning : ui.scan_now));
+    rescan.disabled = state.scanning;
+    rescan.className = "iconbtn" + (state.scanning ? " spin" : "");
+    rescan.title = ui.scan_now;
+    fill($("export"), icon("download"), h("span", "label", ui.export));
+    $("export").title = ui.export;
+    $("footer").textContent = ui.read_only;
+    $("printhead").textContent = "nbuddyn · " + ui.tagline + (r.generated_at ? " · " + new Date(r.generated_at * 1000).toLocaleString(r.lang) : "");
+
+    var notice = $("notice");
+    notice.replaceChildren();
+    var warn = function (title, why) {
+      notice.appendChild(h("div", "notice", h("div", null, title), why ? h("div", "why", why) : null));
+    };
+    if (!r.available || r.error) warn(ui.unavailable, r.error);
+    if (r.cluster_error) warn(ui.cluster_unavailable, r.cluster_error);
+    if (state.history && state.history.error) warn(ui.history_unavailable, state.history.error);
+  }
+
+  /* ---------- Overview ---------- */
+  function gauge(r, ui) {
+    var s = svg("svg", { viewBox: "0 0 260 150", role: "img", "aria-label": ui.gauge + ": " + (r.available ? r.score + "/100, " + ui["zone_" + r.zone] : "–") });
+    [["M30 130 A100 100 0 0 1 160.9 34.9", "var(--red)"], ["M160.9 34.9 A100 100 0 0 1 219.1 84.6", "var(--amber)"], ["M219.1 84.6 A100 100 0 0 1 230 130", "var(--green)"]].forEach(function (a) {
+      s.appendChild(svg("path", { d: a[0], fill: "none", stroke: a[1], "stroke-width": 10 }));
+    });
+    s.appendChild(svg("path", { d: "M22 130H14M53.6 53.6L48 48M130 22V14M206.4 53.6L212 48M238 130H246", stroke: "var(--muted)", "stroke-width": 2, "stroke-linecap": "round" }));
+    var angle = Math.PI * (1 - (r.available ? Math.max(0, Math.min(100, r.score)) : 0) / 100);
+    s.appendChild(svg("line", { x1: 130, y1: 130, x2: (130 + 84 * Math.cos(angle)).toFixed(1), y2: (130 - 84 * Math.sin(angle)).toFixed(1), stroke: "var(--ink)", "stroke-width": 3, "stroke-linecap": "round" }));
+    s.appendChild(svg("circle", { cx: 130, cy: 130, r: 8, fill: "var(--surface)", stroke: "var(--ink)", "stroke-width": 3 }));
+    return s;
+  }
+
+  /* Small columns for the week card: failed on top of the rest. */
+  function spark(days) {
+    var w = 280, hgt = 44, s = svg("svg", { "class": "spark", viewBox: "0 0 " + w + " " + hgt, preserveAspectRatio: "none", "aria-hidden": "true" });
+    var peak = Math.max.apply(null, days.map(runsOf).concat([1]));
+    var band = w / days.length, bw = Math.max(2, band - 6);
+    days.forEach(function (d, i) {
+      var total = runsOf(d), x = i * band + (band - bw) / 2;
+      var th = total ? Math.max(2, (hgt - 2) * total / peak) : 0, fh = total ? th * (d.failed || 0) / total : 0;
+      if (!total) s.appendChild(svg("rect", { x: x, y: hgt - 1, width: bw, height: 1, fill: "var(--line2)" }));
+      if (th - fh > 0) s.appendChild(svg("rect", { x: x, y: hgt - (th - fh), width: bw, height: th - fh, fill: SERIES.ok, rx: 1 }));
+      if (fh > 0) s.appendChild(svg("rect", { x: x, y: hgt - th, width: bw, height: Math.max(1, fh - 1), fill: SERIES.failed, rx: 1 }));
+    });
+    return s;
+  }
+
+  function renderOverview() {
+    var r = state.report, ui = r.ui, view = $("view-overview");
+    var zone = r.available ? r.zone : "off";
+    var hero = h("div", "card hero",
+      h("div", "dial", gauge(r, ui),
+        h("div", "score " + zone, r.available ? r.score : "–", h("small", null, "/100")),
+        h("div", "zone " + zone, r.available ? ui["zone_" + r.zone] : "")),
+      h("div", "brief",
+        h("div", "eyebrow", ui.tagline),
+        h("h1", null, r.available ? r.headline : ui.loading),
+        h("p", "lead", r.available ? r.lead : ""),
+        r.available ? h("div", "actions",
+          h("a", { class: "btn primary", href: "#/findings", text: ui.see_findings }),
+          h("a", { class: "btn", href: "#/history", text: ui.history })) : null));
+    if (!r.available) return fill(view, hero);
+
+    var lights = h("div", "lights");
+    r.lights.forEach(function (l) {
+      lights.appendChild(h("button", { type: "button", class: "light " + l.level, on: { click: function () { toFindings({ light: l.key }); } } },
+        h("div", "name", ui["light_" + l.key]),
+        h("div", "count", l.count === 0 ? ui.ok : l.count)));
+    });
+
+    var first = r.groups.filter(function (g) { return g.severity === "high"; });
+    if (first.length < 3) first = first.concat(r.groups.filter(function (g) { return g.severity === "medium"; })).slice(0, 3);
+    else first = first.slice(0, 4);
+    var todo = h("div", "card", h("h2", null, ui.do_first, h("a", { href: "#/findings", text: ui.see_findings + " →" })));
+    if (first.length === 0) todo.appendChild(h("div", "empty", h("p", null, ui.nothing_urgent)));
+    else {
+      var list = h("ol", "todo");
+      first.forEach(function (g, i) {
+        var item = g.items[0], where = h("div", "where", whereOf(item, ui));
+        if (g.items.length > 1) where.appendChild(document.createTextNode("  +" + (g.items.length - 1) + " " + ui.more));
+        list.appendChild(h("li", null,
+          h("span", "num", "0" + (i + 1)),
+          h("div", "body", h("span", "pill " + g.severity, sevLabel(ui, g.severity)), h("h3", null, g.title), h("p", null, g.advice), (item.workflow || item.node) ? where : null),
+          h("button", { type: "button", class: "btn small", text: ui.see, on: { click: function () { toFindings({ severity: g.severity, open: g.check + g.severity }); } } })));
+      });
+      todo.appendChild(list);
+    }
+
+    var side = h("div", "stack");
+    if (r.cluster || r.runners) {
+      var kv = h("dl", "kv");
+      var row = function (label, value, cls) { kv.appendChild(h("dt", null, label)); kv.appendChild(h("dd", cls || null, value)); };
+      if (r.cluster) {
+        row(ui.queue_waiting, num(r.cluster.waiting), r.cluster.waiting >= 100 ? "caution" : null);
+        row(ui.queue_active, num(r.cluster.active));
+        row(ui.workers, r.cluster.workers, r.cluster.members.length && !r.cluster.workers ? "risk" : null);
+        row(ui.webhooks, r.cluster.webhooks);
+      }
+      if (r.runners) row(ui.runners, r.runners.alive + " / " + r.runners.total, r.runners.alive < r.runners.total ? "risk" : "ok");
+      side.appendChild(h("div", "card", h("h2", null, ui.nav_cluster, h("a", { href: "#/cluster", text: ui.see + " →" })), kv));
+    }
+    var week = state.week;
+    if (week && week.enabled && week.days.length) {
+      var total = runsOf(week.totals);
+      side.appendChild(h("div", "card", h("h2", null, ui.last_7, h("a", { href: "#/history", text: ui.see + " →" })),
+        h("div", "week",
+          h("div", "big", compact(total), " ", h("small", null, ui.runs_total + " · " + percent(week.totals.failed || 0, total) + " " + ui.failure_rate)),
+          spark(week.days))));
+    }
+
+    var inv = r.inventory;
+    var inventory = h("div", "card inv",
+      h("span", "eyebrow", ui.inventory),
+      h("span", null, h("b", null, num(inv.workflows)), ui.inv_workflows),
+      h("span", null, h("b", null, num(inv.active)), ui.inv_active),
+      h("span", null, h("b", null, num(inv.nodes)), ui.inv_nodes),
+      h("span", null, h("b", null, num(inv.credentials)), ui.inv_credentials),
+      h("span", null, h("b", null, num(inv.users)), ui.inv_users));
+
+    fill(view, hero, lights, side.childNodes.length ? h("div", "split", todo, side) : todo, inventory);
+  }
+
+  /* ---------- Findings ---------- */
+  function acceptButton(item, ui, li) {
+    var open = h("button", { type: "button", class: "btn small", text: ui.accept });
+    open.addEventListener("click", function () {
+      state.busy = true;
+      open.hidden = true;
+      var note = h("input", { type: "text", maxLength: 300, placeholder: ui.accept_note, "aria-label": ui.accept_note });
+      var ok = h("button", { type: "submit", class: "btn small primary", text: ui.confirm });
+      var form = h("form", "acceptform", note, ok, h("button", { type: "button", class: "btn small", text: ui.cancel, on: { click: function () { form.remove(); open.hidden = false; state.busy = false; open.focus(); } } }));
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        ok.disabled = true;
+        send("api/accept", { key: item.key, note: note.value }).then(function (answer) {
+          state.busy = false;
+          if (answer.ok) { toast(ui.accepted_toast); return load(); }
+          ok.disabled = false;
+          toast(ui.save_failed);
+        });
+      });
+      li.appendChild(form);
+      note.focus();
+    });
+    return open;
+  }
+
+  function matches(text, query) { return text.toLowerCase().indexOf(query) >= 0; }
+
+  function renderFindings() {
+    var r = state.report, ui = r.ui, view = $("view-findings"), f = state.filter;
+    if (!r.available) return fill(view, h("header", null, h("h1", null, ui.nav_findings)), h("div", "card empty", h("p", null, ui.loading)));
+    var light = f.light && r.lights.filter(function (l) { return l.key === f.light; })[0];
+    var query = f.query.trim().toLowerCase();
+    if (f.severity === "accepted" && !r.accepted.length) f.severity = "all";
+
+    var counts = { all: 0, high: 0, medium: 0, low: 0, info: 0 };
+    r.groups.forEach(function (g) { counts[g.severity] += g.count; counts.all += g.count; });
+
+    var chips = h("div", "filters");
+    var chip = function (key, label, count) {
+      chips.appendChild(h("button", { type: "button", class: "chip", "aria-pressed": String(f.severity === key), on: { click: function () { f.severity = key; renderFindings(); } } }, label, h("b", null, count)));
+    };
+    chip("all", ui.all, counts.all);
+    SEVERITIES.forEach(function (s) { chip(s, sevLabel(ui, s), counts[s]); });
+    if (r.accepted.length) chip("accepted", ui.accepted, r.accepted.length);
+    if (light) chips.appendChild(h("button", { type: "button", class: "chip active-filter", title: ui.clear_filter, "aria-label": ui.clear_filter + ": " + ui["light_" + light.key], on: { click: function () { f.light = null; renderFindings(); } } }, ui["light_" + light.key], icon("x", 12)));
+    var input = h("input", { type: "search", value: f.query, placeholder: ui.search, "aria-label": ui.search });
+    input.addEventListener("input", function () {
+      f.query = input.value;
+      renderFindings();
+      var again = $("view-findings").querySelector(".searchbox input");
+      again.focus();
+      again.setSelectionRange(again.value.length, again.value.length);
+    });
+    chips.appendChild(h("label", "searchbox", icon("search"), input));
+
+    var body = h("div");
+    if (f.severity === "accepted") {
+      var rows = h("ul", "items");
+      r.accepted.filter(function (a) { return !query || matches([a.title, a.workflow, a.node, a.detail, a.note].filter(Boolean).join(" "), query); }).forEach(function (a) {
+        var li = h("li", null,
+          h("div", "what", h("div", null, a.title), whereOf(a, ui)),
+          h("div", "detail", a.detail || ""),
+          r.writable ? h("div", "act", h("button", { type: "button", class: "btn small", text: ui.restore, on: { click: function () {
+            send("api/unaccept", { key: a.key }).then(function () { toast(ui.restored_toast); load(); });
+          } } })) : null);
+        if (a.note || a.at) li.appendChild(h("div", "note", a.note ? "“" + a.note + "”" : "", a.at ? h("small", null, new Date(a.at * 1000).toLocaleDateString(r.lang)) : null));
+        rows.appendChild(li);
+      });
+      body.appendChild(h("div", "card", h("div", "advice", h("span", null, ui.accepted_help)), rows.childNodes.length ? rows : h("div", "empty", h("p", null, ui.no_results))));
+    } else {
+      var filtering = f.severity !== "all" || query || light;
+      var shown = 0;
+      r.groups.forEach(function (g) {
+        if (f.severity !== "all" && g.severity !== f.severity) return;
+        if (light && light.checks.indexOf(g.check) < 0) return;
+        var items = g.items;
+        if (query && !matches(g.title, query)) {
+          items = items.filter(function (it) { return matches([it.workflow, it.node, it.detail].filter(Boolean).join(" "), query); });
+          if (!items.length) return;
+        }
+        shown += 1;
+        var id = g.check + g.severity;
+        var isOpen = state.printing || (state.open[id] !== undefined ? state.open[id] : (g.severity === "high" || !!query || !!light));
+        var card = h("article", "card gcard " + g.severity);
+        card.appendChild(h("button", { type: "button", class: "ghead", "aria-expanded": String(isOpen), on: { click: function () { state.open[id] = !isOpen; renderFindings(); } } },
+          h("span", "pill " + g.severity, sevLabel(ui, g.severity)),
+          h("h3", null, g.title),
+          h("span", "tag", items.length),
+          h("span", "chev", icon("chevron"))));
+        if (isOpen) {
+          var all = state.expanded[id] || state.printing || items.length <= 8;
+          var list = h("ul", "items");
+          (all ? items : items.slice(0, 6)).forEach(function (it) {
+            var named = it.workflow || it.node;
+            var li = h("li", null,
+              h("div", "what" + (named ? "" : " mono"), named ? whereOf(it, ui) : (it.detail || ""), it.active === false ? h("span", "tag", ui.inactive) : null),
+              named ? h("div", "detail", it.detail || "") : null);
+            if (r.writable) li.appendChild(h("div", "act", acceptButton(it, ui, li)));
+            list.appendChild(li);
+          });
+          var gbody = h("div", "gbody", h("div", "advice", h("b", null, ui.what_to_do), h("span", null, g.advice)), list);
+          if (items.length > 8) gbody.appendChild(h("div", "morebar", h("button", { type: "button", class: "linkbtn", text: all ? ui.show_less : ui.show_all + " (" + items.length + ")", on: { click: function () { state.expanded[id] = !all; renderFindings(); } } })));
+          card.appendChild(gbody);
+        }
+        body.appendChild(card);
+      });
+      if (!shown) body.appendChild(h("div", "card empty", h("p", null, filtering ? ui.no_results : ui.all_clear)));
+      if (shown && !r.n8n_url) body.appendChild(h("p", "hint", ui.no_link_hint));
+    }
+    fill(view, h("header", null, h("h1", null, ui.nav_findings)), chips, body);
+  }
+
+  /* ---------- Cluster ---------- */
+  function tile(value, label, cls) {
+    return h("div", "tile", h("div", "n " + (cls || ""), value), h("div", "t", label));
+  }
+  function tableOf(headers, rows) {
+    var head = h("tr");
+    headers.forEach(function (hd) { head.appendChild(h("th", hd[1] || null, hd[0])); });
+    var body = h("tbody");
+    rows.forEach(function (cells) {
+      var tr = h("tr");
+      cells.forEach(function (c, i) {
+        var cell = h("td", ((headers[i][1] || "") + " " + (c[1] || "")).trim() || null);
+        if (c[0] && typeof c[0] === "object") cell.appendChild(c[0]); else cell.textContent = String(c[0]);
+        tr.appendChild(cell);
+      });
+      body.appendChild(tr);
+    });
+    return h("table", null, h("thead", null, head), body);
+  }
+  function settingsPrompt(text, ui) {
+    return h("div", "card empty", h("p", null, text), h("a", { class: "btn", href: "#/settings", text: ui.go_settings }));
+  }
+
+  function renderCluster() {
+    var r = state.report, ui = r.ui, view = $("view-cluster"), c = r.cluster;
+    var head = h("header", null, h("h1", null, ui.nav_cluster));
+    if (!r.available) return fill(view, head, h("div", "card empty", h("p", null, ui.loading)));
+    var tiles = null, off = null;
+    if (c) {
+      tiles = h("div", "tiles",
+        tile(num(c.waiting), ui.queue_waiting, c.waiting >= 100 ? "caution" : ""),
+        tile(num(c.active), ui.queue_active),
+        tile(num(c.delayed), ui.queue_delayed),
+        tile(c.workers, ui.workers, c.members.length && !c.workers ? "risk" : ""),
+        tile(c.webhooks, ui.webhooks));
+      if (r.runners) tiles.appendChild(tile(r.runners.alive + " / " + r.runners.total, ui.runners, r.runners.alive < r.runners.total ? "risk" : ""));
+    } else if (!r.cluster_error) off = settingsPrompt(ui.cluster_off, ui);
+
+    var cols = h("div", "grid2");
+    if (c && c.members.length) {
+      var order = { main: 0, worker: 1, webhook: 2 };
+      var members = c.members.slice().sort(function (a, b) { return ((order[a.kind] || 0) - (order[b.kind] || 0)) || a.host.localeCompare(b.host); });
+      cols.appendChild(h("div", "card", h("h2", null, ui.members, h("span", { class: "tag", style: "margin-left:auto", text: c.versions.join(" · ") })),
+        tableOf([[ui.col_kind], [ui.col_host], [ui.col_version, "num"]], members.map(function (m) { return [[m.kind], [h("span", "mono", m.host)], [m.version]]; }))));
+    }
+    if (r.runners) {
+      cols.appendChild(h("div", "card", h("h2", null, ui.set_runner_urls, h("span", { class: "tag", style: "margin-left:auto", text: r.runners.alive + " / " + r.runners.total })),
+        tableOf([[ui.col_runner], [ui.col_status, "num"]], r.runners.list.map(function (run) {
+          return [[h("span", "mono", run.name)], [h("span", { class: "pill " + (run.problem ? "high" : "ok"), title: run.problem || "", text: run.problem ? ui.not_answering : ui.answering })]];
+        }))));
+    } else cols.appendChild(settingsPrompt(ui.runners_off, ui));
+    if (c) {
+      var used = c.redis_max_mb > 0 ? Math.round(100 * c.redis_used_mb / c.redis_max_mb) : 0;
+      var redis = h("div", "week",
+        h("div", "big", c.redis_used_mb, " ", h("small", null, c.redis_max_mb > 0 ? "/ " + c.redis_max_mb + " MB · " + used + "%" : "MB · " + ui.no_limit)));
+      if (c.redis_max_mb > 0) redis.appendChild(h("div", "meter", h("i", { class: used >= 80 ? "warn" : "", style: "width:" + Math.max(2, Math.min(100, used)) + "%" })));
+      var facts = h("dl", "kv");
+      if (c.eviction_policy) { facts.appendChild(h("dt", null, ui.eviction)); facts.appendChild(h("dd", c.eviction_policy === "noeviction" ? "ok" : "caution", c.eviction_policy)); }
+      cols.appendChild(h("div", "card", h("h2", null, ui.redis_memory), redis, facts.childNodes.length ? facts : null));
+    }
+    fill(view, head, tiles, off, cols);
+  }
+
+  /* ---------- History ---------- */
+  function niceTop(value) {
+    if (value <= 4) return 4;
+    var unit = Math.pow(10, Math.floor(Math.log10(value))), steps = [1, 2, 4, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * unit >= value) return steps[i] * unit;
+    return 10 * unit;
+  }
+  function columnPath(x, y, w, hgt, round) {
+    var r = round ? Math.min(4, w / 2, hgt) : 0;
+    return "M" + x + " " + (y + hgt) + "V" + (y + r) + "a" + r + " " + r + " 0 0 1 " + r + " " + -r + "H" + (x + w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r + "V" + (y + hgt) + "Z";
+  }
   /* Shared frame: gridlines, y ticks, three x labels, and one hover band per day. */
-  function frame(chart, days, top, ticks, height, right, tipRows) {
+  function frame(chart, days, top, ticks, height, tipRows) {
     var width = Math.max(280, Math.floor(chart.getBoundingClientRect().width));
-    var m = { l: 40, r: right, t: 10, b: 24 };
-    var plotW = width - m.l - m.r, plotH = height - m.t - m.b;
-    var band = plotW / days.length;
+    var m = { l: 40, r: 34, t: 10, b: 24 };
+    var plotW = width - m.l - m.r, plotH = height - m.t - m.b, band = plotW / days.length;
     chart.replaceChildren();
     chart.setAttribute("viewBox", "0 0 " + width + " " + height);
     chart.setAttribute("height", height);
@@ -670,9 +753,9 @@
     chart.appendChild(svg("rect", { x: m.l, y: m.t, width: plotW, height: plotH, fill: "transparent" }));
     var glow = svg("rect", { y: m.t, height: plotH, width: Math.max(1, band), fill: "var(--ink)", opacity: 0, "pointer-events": "none" });
     chart.appendChild(glow);
-    var geometry = { m: m, plotW: plotW, plotH: plotH, band: band, y: y, x: function (i) { return m.l + band * i; } };
+    var g = { m: m, plotW: plotW, plotH: plotH, band: band, y: y, x: function (i) { return m.l + band * i; } };
     var figure = chart.parentNode;
-    var tip = figure.querySelector(".tip") || figure.appendChild(el("div", "tip"));
+    var tip = figure.querySelector(".tip") || figure.appendChild(h("div", "tip"));
     tip.hidden = true;
     var hide = function () { tip.hidden = true; glow.setAttribute("opacity", 0); };
     chart.onpointerleave = hide;
@@ -680,69 +763,46 @@
       var box = chart.getBoundingClientRect();
       var i = Math.floor((ev.clientX - box.left - m.l) / band);
       if (i < 0 || i >= days.length) return hide();
-      glow.setAttribute("x", geometry.x(i));
+      glow.setAttribute("x", g.x(i));
       glow.setAttribute("opacity", 0.06);
-      tip.replaceChildren(el("div", "when", dayLabel(days[i].day, true)));
+      tip.replaceChildren(h("div", "when", dayLabel(days[i].day, true)));
       tipRows(days[i]).forEach(function (row) {
-        var line = el("div");
-        var key = el("i", "key");
-        key.style.background = row[0];
-        line.appendChild(key);
-        line.appendChild(el("b", null, row[1]));
-        line.appendChild(el("span", null, row[2]));
-        tip.appendChild(line);
+        tip.appendChild(h("div", null, h("i", { class: "key", style: "background:" + row[0] }), h("b", null, row[1]), h("span", null, row[2])));
       });
       tip.hidden = false;
-      var left = ev.clientX - box.left + 14;
-      if (left + tip.offsetWidth > box.width) left = ev.clientX - box.left - tip.offsetWidth - 14;
+      var pointer = ev.clientX - box.left + chart.offsetLeft;
+      var left = pointer + 14;
+      if (left + tip.offsetWidth > chart.offsetLeft + box.width) left = pointer - tip.offsetWidth - 14;
       tip.style.left = Math.max(0, left) + "px";
       tip.style.top = (chart.offsetTop + m.t) + "px";
     };
-    return geometry;
+    return g;
   }
-
-  function drawRuns(h, ui) {
-    var chart = $("runsChart");
-    var peak = Math.max.apply(null, h.days.map(function (d) { return (d.ok || 0) + (d.failed || 0) + (d.canceled || 0); }));
-    var top = niceTop(peak);
-    var g = frame(chart, h.days, top, [0, top / 2, top], 200, 34, function (d) {
-      var rows = [[SERIES.ok, (d.ok || 0).toLocaleString(lang), ui.runs_ok], [SERIES.failed, (d.failed || 0).toLocaleString(lang), ui.runs_failed]];
-      if (d.canceled) rows.push([SERIES.canceled, d.canceled.toLocaleString(lang), ui.runs_canceled]);
+  function drawRuns(chart, hist, ui) {
+    var top = niceTop(Math.max.apply(null, hist.days.map(runsOf)));
+    var g = frame(chart, hist.days, top, [0, top / 2, top], 210, function (d) {
+      var rows = [[SERIES.ok, num(d.ok), ui.runs_ok], [SERIES.failed, num(d.failed), ui.runs_failed]];
+      if (d.canceled) rows.push([SERIES.canceled, num(d.canceled), ui.runs_canceled]);
       return rows;
     });
-    var w = Math.max(1, Math.min(24, g.band - 2));
-    var gap = w >= 4 ? 2 : 0;
-    h.days.forEach(function (d, i) {
-      var x = g.x(i) + (g.band - w) / 2;
+    var w = Math.max(1, Math.min(24, g.band - 2)), gap = w >= 4 ? 2 : 0;
+    hist.days.forEach(function (d, i) {
+      var x = g.x(i) + (g.band - w) / 2, base = g.m.t + g.plotH;
       var parts = [["ok", d.ok || 0], ["failed", d.failed || 0], ["canceled", d.canceled || 0]].filter(function (p) { return p[1] > 0; });
-      var base = g.m.t + g.plotH;
       parts.forEach(function (p, k) {
         var height = Math.max(1, g.plotH * p[1] / top - (k > 0 ? gap : 0));
         base -= height + (k > 0 ? gap : 0);
         chart.appendChild(svg("path", { d: columnPath(x, base, w, height, k === parts.length - 1), fill: SERIES[p[0]], "pointer-events": "none" }));
       });
     });
-    chart.setAttribute("aria-label", ui.runs_title + ": " + (h.totals.ok || 0) + " " + ui.runs_ok + ", " + (h.totals.failed || 0) + " " + ui.runs_failed);
-
-    var legend = $("runsLegend");
-    legend.replaceChildren();
-    [["ok", ui.runs_ok], ["failed", ui.runs_failed]].concat(h.totals.canceled ? [["canceled", ui.runs_canceled]] : []).forEach(function (s) {
-      var item = el("span");
-      var swatch = el("i");
-      swatch.style.background = SERIES[s[0]];
-      item.appendChild(swatch);
-      item.appendChild(document.createTextNode(s[1]));
-      legend.appendChild(item);
-    });
+    chart.setAttribute("aria-label", ui.runs_title + ": " + num(hist.totals.ok) + " " + ui.runs_ok + ", " + num(hist.totals.failed) + " " + ui.runs_failed);
   }
-
-  function drawScore(h, ui) {
-    var chart = $("scoreChart");
-    var g = frame(chart, h.days, 100, [0, 50, 100], 140, 34, function (d) {
+  function drawScore(chart, hist, ui) {
+    var g = frame(chart, hist.days, 100, [0, 50, 100], 150, function (d) {
       return [[SERIES.ok, d.score === undefined ? "–" : d.score, ui.col_score.toLowerCase()]];
     });
     var path = "", pen = false, last = null;
-    h.days.forEach(function (d, i) {
+    hist.days.forEach(function (d, i) {
       if (d.score === undefined) { pen = false; return; }
       var x = g.x(i) + g.band / 2, y = g.y(d.score);
       path += (pen ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
@@ -751,154 +811,231 @@
     });
     if (path) chart.appendChild(svg("path", { d: path, fill: "none", stroke: SERIES.ok, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", "pointer-events": "none" }));
     if (last) {
-      chart.appendChild(svg("circle", { cx: last.x, cy: last.y, r: 4, fill: SERIES.ok, stroke: "var(--bg)", "stroke-width": 2, "pointer-events": "none" }));
+      chart.appendChild(svg("circle", { cx: last.x, cy: last.y, r: 4, fill: SERIES.ok, stroke: "var(--surface)", "stroke-width": 2, "pointer-events": "none" }));
       chart.appendChild(svg("text", { "class": "end", x: last.x + 9, y: last.y + 4 }, last.score));
     }
     chart.setAttribute("aria-label", ui.score_title + (last ? ": " + last.score + "/100" : ""));
   }
 
-  function table(headers, rows) {
-    var t = el("table");
-    var head = t.appendChild(el("thead")).appendChild(el("tr"));
-    headers.forEach(function (hd) { head.appendChild(el("th", hd[1], hd[0])); });
-    var body = t.appendChild(el("tbody"));
-    rows.forEach(function (cells) {
-      var tr = body.appendChild(el("tr"));
-      cells.forEach(function (c, i) {
-        var cell = el("td", (headers[i][1] + " " + (c[1] || "")).trim());
-        if (c[0] && typeof c[0] === "object") cell.appendChild(describe({ workflow: c[0].name, path: c[0].path }, lastUi));
-        else cell.textContent = String(c[0]);
-        tr.appendChild(cell);
-      });
-    });
-    return t;
-  }
-
   function renderHistory() {
-    var h = lastHistory, ui = lastUi;
-    var section = $("history");
-    section.hidden = !(h && ui && h.enabled);
-    if (section.hidden) return;
-    section.classList.remove("loading");
-    $("historyTitle").textContent = ui.history;
-    $("runsTitle").textContent = ui.runs_title;
-    $("scoreTitle").textContent = ui.score_title;
-    $("dayTableTitle").textContent = ui.table_by_day;
-
-    var ranges = $("ranges");
-    ranges.setAttribute("aria-label", ui.history);
-    ranges.replaceChildren();
+    var r = state.report, ui = r.ui, hist = state.history, view = $("view-history");
+    var title = h("h1", null, ui.history);
+    if (!hist) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.loading)));
+    if (!hist.enabled) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.history_off)));
+    view.classList.remove("loading");
+    var ranges = h("div", { class: "ranges", role: "group", "aria-label": ui.history });
     RANGES.forEach(function (n) {
-      var b = el("button", null, n + " " + ui.days);
-      b.type = "button";
-      b.setAttribute("data-range", n);
-      b.setAttribute("aria-pressed", String(n === range));
-      ranges.appendChild(b);
+      ranges.appendChild(h("button", { type: "button", "aria-pressed": String(n === state.range), text: n + " " + ui.days, on: { click: function () {
+        if (n === state.range) return;
+        state.range = n;
+        store("nbuddyn.range", String(n));
+        view.classList.add("loading");
+        loadHistory();
+      } } }));
     });
 
-    var notice = $("historyNotice");
-    notice.replaceChildren();
-    if (h.error) {
-      var box = el("div", "notice");
-      box.appendChild(el("div", null, ui.history_unavailable));
-      box.appendChild(el("div", "why", h.error));
-      notice.appendChild(box);
-    }
+    var total = runsOf(hist.totals);
+    var tiles = h("div", "tiles",
+      tile(compact(total), ui.runs_total),
+      tile(compact(hist.totals.ok || 0), ui.runs_ok),
+      tile(compact(hist.totals.failed || 0), ui.runs_failed, hist.totals.failed ? "risk" : ""),
+      tile(percent(hist.totals.failed || 0, total), ui.failure_rate));
 
-    var total = (h.totals.ok || 0) + (h.totals.failed || 0) + (h.totals.canceled || 0);
-    var totals = $("historyTotals");
-    totals.replaceChildren();
-    [[compact(total), ui.runs_total, ""], [compact(h.totals.ok || 0), ui.runs_ok, ""],
-     [compact(h.totals.failed || 0), ui.runs_failed, h.totals.failed ? "risk" : ""],
-     [percent(h.totals.failed || 0, total), ui.failure_rate, ""]].forEach(function (t) {
-      var cell = el("div");
-      cell.appendChild(el("div", "n " + t[2], t[0]));
-      cell.appendChild(el("div", "t", t[1]));
-      totals.appendChild(cell);
+    var legend = h("span", "legend");
+    [["ok", ui.runs_ok], ["failed", ui.runs_failed]].concat(hist.totals.canceled ? [["canceled", ui.runs_canceled]] : []).forEach(function (s) {
+      legend.appendChild(h("span", null, h("i", { style: "background:" + SERIES[s[0]] }), s[1]));
     });
+    var runsChart = svg("svg", { "class": "chart", role: "img" }), scoreChart = svg("svg", { "class": "chart", role: "img" });
+    var charts = h("div", "stack",
+      h("div", "card", h("h2", null, ui.runs_title, legend), h("figure", null, runsChart),
+        h("details", "daytable", h("summary", null, ui.table_by_day),
+          tableOf([[ui.col_day], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_score, "num"]],
+            hist.days.slice().reverse().map(function (d) { return [[dayLabel(d.day, true)], [num(d.ok)], [num(d.failed), d.failed ? "bad" : ""], [d.score === undefined ? "–" : d.score]]; })))),
+      h("div", "card", h("h2", null, ui.score_title), h("figure", null, scoreChart)));
 
-    if (h.days.length) { drawRuns(h, ui); drawScore(h, ui); }
-
-    $("dayTable").replaceChildren(table(
-      [[ui.col_day, ""], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_score, "num"]],
-      h.days.slice().reverse().map(function (d) {
-        return [[dayLabel(d.day, true)], [(d.ok || 0).toLocaleString(lang)], [(d.failed || 0).toLocaleString(lang), d.failed ? "bad" : ""], [d.score === undefined ? "–" : d.score]];
-      })));
-
-    var holder = $("workflowTable");
-    holder.replaceChildren();
-    if (h.workflows.length === 0) {
-      holder.appendChild(el("p", "note", ui.history_empty));
-    } else {
-      var t = table(
-        [[ui.col_workflow, ""], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"], [ui.col_last, "num optional"]],
-        h.workflows.map(function (w) {
-          var runs = (w.ok || 0) + (w.failed || 0) + (w.canceled || 0);
-          return [[w], [runs.toLocaleString(lang)], [(w.failed || 0).toLocaleString(lang), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
+    var workflows = h("div", "card", h("h2", null, ui.inv_workflows));
+    if (!hist.workflows.length) workflows.appendChild(h("div", "empty", h("p", null, ui.history_empty)));
+    else {
+      var t = tableOf([[ui.col_workflow], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"], [ui.col_last, "num optional"]],
+        hist.workflows.map(function (w) {
+          var runs = runsOf(w);
+          return [[whereOf({ workflow: w.name, path: w.path }, ui)], [num(runs)], [num(w.failed), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
         }));
-      holder.appendChild(t);
+      workflows.appendChild(t);
       var rows = t.querySelectorAll("tbody tr");
-      if (rows.length > 10) {
-        for (var i = 10; i < rows.length; i++) rows[i].hidden = true;
-        var more = el("button", "morerows", "+ " + (rows.length - 10) + " " + ui.more);
-        more.type = "button";
-        more.addEventListener("click", function () {
-          Array.prototype.forEach.call(rows, function (r) { r.hidden = false; });
+      if (rows.length > 12 && !state.printing) {
+        for (var i = 12; i < rows.length; i++) rows[i].hidden = true;
+        var more = h("div", "morebar", h("button", { type: "button", class: "linkbtn", text: ui.show_all + " (" + rows.length + ")", on: { click: function () {
+          Array.prototype.forEach.call(rows, function (row) { row.hidden = false; });
           more.remove();
-        });
-        holder.appendChild(more);
+        } } }));
+        workflows.appendChild(more);
       }
     }
-    $("historyNote").textContent = (h.since ? ui.history_since + " " + dayLabel(h.since, true) + ". " : "") + ui.history_note;
+    fill(view, h("header", null, title, ranges), tiles, charts, h("div", { style: "height:16px" }), workflows,
+      h("p", "hint", (hist.since ? ui.history_since + " " + dayLabel(hist.since, true) + ". " : "") + ui.history_note));
+    if (hist.days.length && !view.hidden) { drawRuns(runsChart, hist, ui); drawScore(scoreChart, hist, ui); }
   }
 
+  /* ---------- Settings ---------- */
+  var SECTIONS = [["sec_n8n", [["n8n_url", "text"], ["lang", "select"], ["timezone", "text"]]],
+                  ["sec_scan", [["interval_seconds", "number"], ["history_days", "number"]]],
+                  ["sec_cluster", [["redis_url", "text"], ["runner_urls", "area"]]]];
+
+  function renderSettings() {
+    var ui = state.report.ui, view = $("view-settings");
+    fill(view, h("header", null, h("h1", null, ui.settings)), h("div", "card empty", h("p", null, ui.loading)));
+    return get("api/settings").then(function (s) {
+      var status = h("span", { class: "status", role: "status" });
+      var save = h("button", { type: "submit", class: "btn primary", text: ui.save, hidden: !s.writable });
+      var form = h("form", { class: "settings stack", novalidate: true });
+      if (!s.writable) form.appendChild(h("div", "notice", h("div", null, ui.settings_readonly), s.error ? h("div", "why", s.error) : null));
+      SECTIONS.forEach(function (section) {
+        var card = h("div", "card", h("h2", null, ui[section[0]]));
+        section[1].forEach(function (f) {
+          var name = f[0], input;
+          if (f[1] === "select") {
+            input = h("select");
+            [["en", "English"], ["es", "Español"], ["pt", "Português"]].forEach(function (o) { input.appendChild(h("option", { value: o[0], text: o[1] })); });
+          } else if (f[1] === "area") input = h("textarea", { rows: 5, spellcheck: false });
+          else input = h("input", { type: f[1], spellcheck: false, autocomplete: "off" });
+          input.id = "set_" + name;
+          input.name = name;
+          input.value = s.values[name];
+          input.disabled = !s.writable;
+          input.addEventListener("input", function () { state.busy = true; });
+          card.appendChild(h("div", { class: "field", "data-field": name },
+            h("label", { htmlFor: "set_" + name, text: ui["set_" + name] }), input,
+            ui["help_" + name] ? h("div", "help", ui["help_" + name]) : null));
+        });
+        form.appendChild(card);
+      });
+      var about = h("dl", "kv");
+      [[ui.env_database, s.database], [ui.env_mcp, s.mcp ? ui.on : ui.off], ["nbuddyn", s.version]].forEach(function (row) {
+        about.appendChild(h("dt", null, row[0]));
+        about.appendChild(h("dd", null, row[1]));
+      });
+      form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.env_only + ". " + ui.read_only })));
+      form.appendChild(h("div", "savebar", status, save));
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var values = {};
+        SECTIONS.forEach(function (section) { section[1].forEach(function (f) { values[f[0]] = $("set_" + f[0]).value; }); });
+        save.disabled = true;
+        status.textContent = "";
+        Array.prototype.forEach.call(form.querySelectorAll(".field"), function (w) {
+          w.classList.remove("wrong");
+          var old = w.querySelector(".bad");
+          if (old) old.remove();
+        });
+        send("api/settings", values).then(function (answer) {
+          save.disabled = false;
+          if (answer.ok) {
+            state.busy = false;
+            state.lang = values.lang;
+            store("nbuddyn.lang", state.lang);
+            toast(ui.saved);
+            return setTimeout(function () { load().then(function () { if (state.view === "settings") renderSettings(); }); }, 1200);
+          }
+          (answer.wrong || []).forEach(function (name) {
+            var w = form.querySelector('[data-field="' + name + '"]');
+            if (!w) return;
+            w.classList.add("wrong");
+            w.insertBefore(h("div", "bad", ui.invalid), w.querySelector(".help"));
+          });
+          var first = form.querySelector(".wrong input, .wrong textarea, .wrong select");
+          if (first) first.focus();
+          else status.textContent = ui.save_failed + (answer.error ? ": " + answer.error : "");
+        });
+      });
+      fill(view, h("header", null, h("h1", null, ui.settings)), form);
+    }).catch(function (err) { console.error("nbuddyn", err); });
+  }
+
+  /* ---------- Wiring ---------- */
+  function renderAll() {
+    if (!state.report) return;
+    renderChrome();
+    renderOverview();
+    renderFindings();
+    renderCluster();
+    renderHistory();
+  }
+  function show() {
+    var view = (location.hash.match(/^#\/([a-z]+)/) || [])[1];
+    view = VIEWS.indexOf(view) >= 0 ? view : "overview";
+    var changed = view !== state.view;
+    state.view = view;
+    VIEWS.forEach(function (v) { $("view-" + v).hidden = v !== state.view; });
+    state.busy = false;
+    if (!state.report) return;
+    renderChrome();
+    if (state.view === "history") renderHistory();
+    if (state.view === "settings") renderSettings();
+    if (changed) window.scrollTo(0, 0);
+  }
   function loadHistory() {
-    $("history").classList.add("loading");
-    fetch("api/history?days=" + range, { credentials: "same-origin" })
-      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(function (h) { lastHistory = h; renderHistory(); })
-      .catch(function (err) { console.error("nbuddyn", err); });
+    return get("api/history?days=" + state.range).then(function (hist) {
+      state.history = hist;
+      if (state.report) { renderChrome(); renderHistory(); }
+    }).catch(function (err) { console.error("nbuddyn", err); });
   }
-
   function load() {
-    fetch("api/report?lang=" + encodeURIComponent(lang), { credentials: "same-origin" })
-      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(function (r) { lastUi = r.ui; render(r); renderHistory(); })
-      .catch(function (err) { console.error("nbuddyn", err); });
-    loadHistory();
+    var week = get("api/history?days=7").then(function (w) { state.week = w; }).catch(function () {});
+    var report = get("api/report?lang=" + encodeURIComponent(state.lang)).then(function (r) { state.report = r; });
+    return Promise.all([report, week]).then(function () {
+      renderAll();
+      return loadHistory();
+    }).catch(function (err) { console.error("nbuddyn", err); });
   }
 
-  $("ranges").addEventListener("click", function (ev) {
-    var next = Number(ev.target.getAttribute && ev.target.getAttribute("data-range"));
-    if (!next || next === range) return;
-    range = next;
-    try { localStorage.setItem("nbuddyn.range", String(range)); } catch (e) {}
-    Array.prototype.forEach.call($("ranges").children, function (b) {
-      b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-range")) === range));
-    });
-    loadHistory();
+  $("lang").addEventListener("change", function () {
+    state.lang = $("lang").value;
+    store("nbuddyn.lang", state.lang);
+    load().then(function () { if (state.view === "settings") renderSettings(); });
   });
+  $("rescan").addEventListener("click", function () {
+    if (state.scanning || !state.report) return;
+    var before = state.report.generated_at, tries = 0;
+    state.scanning = true;
+    renderChrome();
+    var poll = function () {
+      tries += 1;
+      setTimeout(function () {
+        get("api/report?lang=" + encodeURIComponent(state.lang)).then(function (r) {
+          if (r.generated_at !== before || tries >= 20) {
+            state.scanning = false;
+            return load();
+          }
+          poll();
+        }).catch(function () { state.scanning = false; renderChrome(); });
+      }, 1500);
+    };
+    send("api/rescan").then(poll);
+  });
+  $("export").addEventListener("click", function () {
+    if (!state.report) return;
+    state.printing = true;
+    VIEWS.forEach(function (v) { $("view-" + v).hidden = v === "settings"; });
+    renderAll();
+    window.print();
+  });
+  window.addEventListener("afterprint", function () {
+    state.printing = false;
+    VIEWS.forEach(function (v) { $("view-" + v).hidden = v !== state.view; });
+    renderAll();
+  });
+  window.addEventListener("hashchange", show);
   var resizing = null;
   window.addEventListener("resize", function () {
     clearTimeout(resizing);
-    resizing = setTimeout(renderHistory, 150);
+    resizing = setTimeout(function () { if (state.report && state.view === "history") renderHistory(); }, 150);
   });
 
-  $("langs").addEventListener("click", function (ev) {
-    var next = ev.target.getAttribute && ev.target.getAttribute("data-lang");
-    if (!next) return;
-    lang = next;
-    try { localStorage.setItem("nbuddyn.lang", lang); } catch (e) {}
-    load();
-  });
-  $("export").addEventListener("click", function () {
-    Array.prototype.forEach.call(document.querySelectorAll("details"), function (d) { d.open = true; });
-    window.print();
-  });
-
-  load();
+  show();
+  load().then(show);
   /* An open form is left alone: a refresh would wipe what is being typed. */
-  setInterval(function () { if (!busy) load(); }, 60000);
+  setInterval(function () { if (!state.busy && !state.scanning && !state.printing) load(); }, 60000);
 })();
 </script>
 </body>

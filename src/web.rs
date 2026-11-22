@@ -89,6 +89,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/settings", get(settings_view).post(settings_save))
         .route("/api/accept", post(accept))
         .route("/api/unaccept", post(unaccept))
+        .route("/api/rescan", post(rescan))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -165,6 +166,7 @@ async fn read_report(state: &AppState, lang: Option<Lang>) -> Report {
         saved: state.saved.read().await.clone(),
         n8n_url: effective.n8n_url,
         writable: state.settings_store.is_some(),
+        interval_seconds: effective.interval.as_secs(),
     };
     compose_report(
         lang.unwrap_or(effective.lang),
@@ -205,6 +207,8 @@ struct Report {
     n8n_url: String,
     /// Whether findings can be accepted and settings saved.
     writable: bool,
+    /// Seconds between scans, so the page can say when the next one is due.
+    interval_seconds: u64,
     ui: UiText,
 }
 
@@ -221,6 +225,7 @@ struct ClusterView {
     /// 0 means Redis has no memory limit.
     redis_max_mb: i64,
     eviction_policy: String,
+    members: Vec<MemberView>,
 }
 
 impl ClusterView {
@@ -237,6 +242,15 @@ impl ClusterView {
             redis_used_mb: (cluster.redis.used_memory + MB / 2) / MB,
             redis_max_mb: cluster.redis.max_memory / MB,
             eviction_policy: cluster.redis.eviction_policy.clone(),
+            members: cluster
+                .members
+                .iter()
+                .map(|m| MemberView {
+                    kind: m.kind.clone(),
+                    host: m.host_id.clone(),
+                    version: m.version.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -258,12 +272,31 @@ struct AcceptedView {
 struct RunnersView {
     alive: usize,
     total: usize,
+    list: Vec<RunnerView>,
+}
+
+#[derive(Serialize)]
+struct RunnerView {
+    name: String,
+    /// Absent when the runner answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    problem: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MemberView {
+    /// `main`, `worker` or `webhook`.
+    kind: String,
+    host: String,
+    version: String,
 }
 
 /// One annunciator light: an area of the instance and how bad it looks.
 #[derive(Serialize)]
 struct Light {
     key: &'static str,
+    /// The checks this light watches, so the page can show its findings.
+    checks: &'static [&'static str],
     count: usize,
     /// `high`, `medium` or `ok`.
     level: &'static str,
@@ -343,6 +376,7 @@ struct Extras {
     saved: Saved,
     n8n_url: String,
     writable: bool,
+    interval_seconds: u64,
 }
 
 /// The score of the findings nobody accepted.
@@ -437,6 +471,7 @@ fn compose_report(
             };
             Light {
                 key,
+                checks,
                 count: hits.len(),
                 level,
             }
@@ -446,6 +481,14 @@ fn compose_report(
     let runners = (!scan.runners.is_empty()).then(|| RunnersView {
         alive: scan.runners.iter().filter(|r| r.problem.is_none()).count(),
         total: scan.runners.len(),
+        list: scan
+            .runners
+            .iter()
+            .map(|r| RunnerView {
+                name: r.name.clone(),
+                problem: r.problem.clone(),
+            })
+            .collect(),
     });
 
     let groups = group(lang, scan.findings);
@@ -474,6 +517,7 @@ fn compose_report(
         accepted,
         n8n_url: extras.n8n_url.clone(),
         writable: extras.writable,
+        interval_seconds: extras.interval_seconds,
         ui: ui_text(lang),
     }
 }
@@ -664,6 +708,15 @@ async fn unaccept(
         Ok(next)
     })
     .await
+}
+
+/// Asks for a scan now instead of at the next interval.
+async fn rescan(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !headers.contains_key(WRITE_HEADER) {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
+    state.rescan.notify_one();
+    Saving::done()
 }
 
 async fn require_login(
