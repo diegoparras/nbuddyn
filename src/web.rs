@@ -162,6 +162,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/users/remove", post(user_remove))
         .route("/api/audit", get(audit_list))
         .route("/api/alerts/test", post(alerts_test))
+        .route("/api/policy", get(policy_view).post(policy_save))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -543,7 +544,8 @@ pub async fn summaries(state: &AppState, effective: &Effective) -> Vec<InstanceS
     for instance in &effective.instances {
         let runtime = state.runtime(&instance.id).await;
         let latest = runtime.latest.read().await;
-        let accepted = saved.accepted_in(&instance.id);
+        let accepted = saved.accepted_valid(&instance.id, now());
+        let accepted = accepted.as_slice();
         let open = |scan: &Scan| {
             scan.findings
                 .iter()
@@ -576,7 +578,7 @@ async fn read_report(state: &AppState, lang: Option<Lang>, instance: Option<&str
     let cluster_error = runtime.cluster_error.read().await.clone();
     let history = runtime.history.read().await;
     let extras = Extras {
-        accepted: state.saved.read().await.accepted_in(&instance.id).to_vec(),
+        accepted: state.saved.read().await.accepted_valid(&instance.id, now()),
         n8n_url: instance.n8n_url.clone(),
         writable: state.settings_store.is_some(),
         interval_seconds: effective.interval.as_secs(),
@@ -1293,6 +1295,10 @@ async fn accept(
     if !known {
         return Saving::refused(StatusCode::NOT_FOUND, Vec::new(), None);
     }
+    // The team's rules can ask for a reason with every acceptance.
+    if state.saved.read().await.accept_needs_note == Some(true) && decision.note.trim().is_empty() {
+        return Saving::refused(StatusCode::UNPROCESSABLE_ENTITY, vec!["note"], None);
+    }
     let now = now();
     let act = ("accept", decision.key.as_str());
     save_with(&state, &headers, &who, act, |saved| {
@@ -1697,6 +1703,99 @@ async fn audit_list(
         return StatusCode::FORBIDDEN.into_response();
     }
     Json(state.auth.audit(200)).into_response()
+}
+
+/// One check and how severe the team says it is.
+#[derive(Serialize)]
+struct PolicyRule {
+    check: &'static str,
+    title: String,
+    /// `default`, `off`, `info`, `low`, `medium` or `high`.
+    level: String,
+}
+
+#[derive(Serialize)]
+struct PolicyView {
+    rules: Vec<PolicyRule>,
+    accept_needs_note: bool,
+    /// 0 means an acceptance lasts as long as the finding.
+    accept_days: u32,
+}
+
+#[derive(Deserialize)]
+struct PolicyForm {
+    #[serde(default)]
+    levels: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    accept_needs_note: bool,
+    #[serde(default)]
+    accept_days: u32,
+}
+
+#[derive(Deserialize)]
+struct LangQuery {
+    lang: Option<String>,
+}
+
+async fn policy_view(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    Query(q): Query<LangQuery>,
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let lang = match q.lang.as_deref().map(Lang::parse) {
+        Some(lang) => lang,
+        None => state.effective().await.lang,
+    };
+    let saved = state.saved.read().await;
+    Json(PolicyView {
+        rules: i18n::CHECKS
+            .iter()
+            .map(|check| PolicyRule {
+                check,
+                title: i18n::group_title(lang, check, 1),
+                level: saved
+                    .policy
+                    .get(*check)
+                    .cloned()
+                    .unwrap_or_else(|| "default".into()),
+            })
+            .collect(),
+        accept_needs_note: saved.accept_needs_note.unwrap_or(false),
+        accept_days: saved.accept_days.unwrap_or(0),
+    })
+    .into_response()
+}
+
+async fn policy_save(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(form): Json<PolicyForm>,
+) -> Response {
+    save_with(&state, &headers, &who, ("policy", ""), |saved| {
+        let mut next = saved.clone();
+        next.policy.clear();
+        for (check, level) in &form.levels {
+            let known = i18n::CHECKS.contains(&check.as_str());
+            match level.as_str() {
+                "default" => {}
+                "off" | "info" | "low" | "medium" | "high" if known => {
+                    next.policy.insert(check.clone(), level.clone());
+                }
+                _ => return Err(vec!["policy"]),
+            }
+        }
+        if form.accept_days > 3650 {
+            return Err(vec!["accept_days"]);
+        }
+        next.accept_needs_note = Some(form.accept_needs_note);
+        next.accept_days = Some(form.accept_days);
+        Ok(next)
+    })
+    .await
 }
 
 /// Sends a test message everywhere alerts go, and says what went wrong.

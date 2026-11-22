@@ -374,7 +374,7 @@ async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
                     alerted.retain(|_, at| now.saturating_sub(*at) < ALERT_AGAIN_AFTER);
                     let score = web::score_without_accepted(
                         &scan.findings,
-                        state.saved.read().await.accepted_in(&instance.id),
+                        &state.saved.read().await.accepted_valid(&instance.id, now),
                     );
                     *runtime.latest.write().await = Some(scan);
                     *runtime.last_error.write().await = None;
@@ -469,17 +469,23 @@ async fn scan_once(
     *runtime.cluster_error.write().await = cluster_error;
     snapshot.runners = runners::probe_all(&instance.runners).await;
     let mut scan = evaluate(&snapshot);
+    let policy = state.saved.read().await.policy.clone();
+    radar::apply_policy(&mut scan.findings, &policy);
     let mut events = Vec::new();
 
     if let Some(store) = store {
-        let accepted = state.saved.read().await.accepted_in(&instance.id).to_vec();
+        let accepted = state
+            .saved
+            .read()
+            .await
+            .accepted_valid(&instance.id, scan.generated_at);
         let outcome = remember(
             &source,
             store,
             &runtime.history,
             &snapshot,
             &mut scan,
-            &accepted,
+            (&accepted, &policy),
             history_days,
         )
         .await;
@@ -511,7 +517,10 @@ async fn remember(
     history: &RwLock<Option<History>>,
     snapshot: &Snapshot,
     scan: &mut Scan,
-    accepted: &[settings::Accepted],
+    (accepted, policy): (
+        &[settings::Accepted],
+        &std::collections::BTreeMap<String, String>,
+    ),
     keep_days: u32,
 ) -> Result<Vec<history::Event>, String> {
     // Read from disk the first time, and again after a failed load.
@@ -536,6 +545,7 @@ async fn remember(
             &history.quiet(),
         ));
         radar::sort(&mut scan.findings);
+        radar::apply_policy(&mut scan.findings, policy);
         // The history keeps the score people see: without what they accepted.
         let score = web::score_without_accepted(&scan.findings, accepted);
         history.record_score(&today, score, keep_days);

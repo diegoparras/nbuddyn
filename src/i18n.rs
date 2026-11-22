@@ -37,7 +37,6 @@ impl Lang {
 }
 
 /// Every check the radar can report, in the order they are documented.
-#[cfg(test)]
 pub const CHECKS: &[&str] = &[
     "open_ai_entry",
     "repeated_failures",
@@ -746,6 +745,17 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub sec_policy: &'static str,
+    pub policy_help: &'static str,
+    pub level_default: &'static str,
+    pub level_off: &'static str,
+    pub set_accept_needs_note: &'static str,
+    pub accept_needs_note_true: &'static str,
+    pub accept_needs_note_false: &'static str,
+    pub set_accept_days: &'static str,
+    pub help_accept_days: &'static str,
+    pub note_required: &'static str,
+    pub act_policy: &'static str,
     pub list_cut: &'static str,
     pub certain: &'static str,
     pub likely: &'static str,
@@ -1401,6 +1411,61 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        sec_policy: lang.pick(
+            "Your rules",
+            "Tus reglas",
+            "As suas regras",
+        ),
+        policy_help: lang.pick(
+            "Decide what matters here. A check can be more or less severe than nbuddyn makes it, or be turned off. nbuddyn never changes n8n: it watches, scores and alerts by these rules.",
+            "Decidí qué importa acá. Un chequeo puede ser más o menos grave de lo que dice nbuddyn, o apagarse. nbuddyn nunca cambia n8n: vigila, puntúa y avisa según estas reglas.",
+            "Decida o que importa aqui. Uma verificação pode ser mais ou menos grave do que o nbuddyn diz, ou ser desligada. O nbuddyn nunca muda o n8n: vigia, pontua e avisa por estas regras.",
+        ),
+        level_default: lang.pick(
+            "As nbuddyn says",
+            "Como dice nbuddyn",
+            "Como o nbuddyn diz",
+        ),
+        level_off: lang.pick(
+            "Off",
+            "Apagado",
+            "Desligado",
+        ),
+        set_accept_needs_note: lang.pick(
+            "Accepting a finding",
+            "Aceptar un hallazgo",
+            "Aceitar um achado",
+        ),
+        accept_needs_note_true: lang.pick(
+            "Needs a reason",
+            "Exige un motivo",
+            "Exige um motivo",
+        ),
+        accept_needs_note_false: lang.pick(
+            "A reason is optional",
+            "El motivo es opcional",
+            "O motivo é opcional",
+        ),
+        set_accept_days: lang.pick(
+            "Days an acceptance lasts",
+            "Días que dura una aceptación",
+            "Dias que uma aceitação dura",
+        ),
+        help_accept_days: lang.pick(
+            "After that the finding comes back for another look. 0 means it lasts as long as the finding.",
+            "Después el hallazgo vuelve para que lo miren de nuevo. 0 significa que dura lo que dure el hallazgo.",
+            "Depois o achado volta para ser olhado de novo. 0 significa que dura enquanto o achado durar.",
+        ),
+        note_required: lang.pick(
+            "Your rules ask for a reason.",
+            "Tus reglas piden un motivo.",
+            "As suas regras pedem um motivo.",
+        ),
+        act_policy: lang.pick(
+            "changed the rules",
+            "cambió las reglas",
+            "mudou as regras",
         ),
         list_cut: lang.pick(
             "{n} more are not listed. Search to find a specific one, or use the API.",

@@ -270,6 +270,38 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
     findings
 }
 
+/// Applies the team's own rules: a check they made more or less severe takes
+/// that severity, and a check they turned off is dropped.
+pub fn apply_policy(
+    findings: &mut Vec<Finding>,
+    policy: &std::collections::BTreeMap<String, String>,
+) {
+    if policy.is_empty() {
+        return;
+    }
+    findings.retain_mut(|f| match policy.get(f.check).map(String::as_str) {
+        Some("off") => false,
+        Some("high") => {
+            f.severity = Severity::High;
+            true
+        }
+        Some("medium") => {
+            f.severity = Severity::Medium;
+            true
+        }
+        Some("low") => {
+            f.severity = Severity::Low;
+            true
+        }
+        Some("info") => {
+            f.severity = Severity::Info;
+            true
+        }
+        _ => true,
+    });
+    sort(findings);
+}
+
 /// Everything that can be said about one workflow from its definition alone.
 pub fn check_workflow(wf: &Workflow) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -563,6 +595,36 @@ mod tests {
 
     fn wf(name: &str, active: bool, nodes: &str, settings: Option<&str>) -> Workflow {
         Workflow::from_raw("wf1".into(), name.into(), active, false, nodes, settings)
+    }
+
+    #[test]
+    fn the_teams_rules_change_severities_and_silence_checks() {
+        let finding = |check: &'static str, severity| Finding {
+            check,
+            severity,
+            workflow: Some("wf".into()),
+            node: None,
+            detail: None,
+            active: Some(true),
+            workflow_id: None,
+            subject: None,
+        };
+        let mut findings = vec![
+            finding("no_mfa", Severity::Medium),
+            finding("env_access", Severity::Low),
+            finding("unused_credential", Severity::Low),
+        ];
+        let policy = std::collections::BTreeMap::from([
+            ("no_mfa".to_owned(), "high".to_owned()),
+            ("unused_credential".to_owned(), "off".to_owned()),
+            ("something_else".to_owned(), "high".to_owned()),
+        ]);
+        apply_policy(&mut findings, &policy);
+        let seen: Vec<(&str, Severity)> = findings.iter().map(|f| (f.check, f.severity)).collect();
+        assert_eq!(
+            seen,
+            vec![("no_mfa", Severity::High), ("env_access", Severity::Low)]
+        );
     }
 
     #[test]

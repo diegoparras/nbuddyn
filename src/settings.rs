@@ -117,6 +117,17 @@ pub struct Saved {
     /// Whether workflow changes alert too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert_changes: Option<bool>,
+    /// The team's own rules: how severe each check is here. A check that is
+    /// not listed keeps the severity nbuddyn gives it; `off` silences it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub policy: std::collections::BTreeMap<String, String>,
+    /// Whether accepting a finding needs a reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_needs_note: Option<bool>,
+    /// Days an acceptance lasts before the finding comes back for another
+    /// look. 0 or absent: for as long as the finding does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_days: Option<u32>,
     /// The instances added from the page, in the order they were added.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub instances: Vec<InstanceSaved>,
@@ -493,6 +504,17 @@ impl Saved {
             return Err(vec!["instance"]);
         }
         Ok(next)
+    }
+
+    /// The acceptances in one instance that still hold at `now`: the ones
+    /// that have not outlived the days the team's rules give them.
+    pub fn accepted_valid(&self, id: &str, now: u64) -> Vec<Accepted> {
+        let lasts = u64::from(self.accept_days.unwrap_or(0)) * 86_400;
+        self.accepted_in(id)
+            .iter()
+            .filter(|a| lasts == 0 || a.at + lasts > now)
+            .cloned()
+            .collect()
     }
 
     /// The findings accepted in one instance.
@@ -958,6 +980,18 @@ mod tests {
         assert!(saved.accepted_in("gone").is_empty());
         saved.unaccept(PRIMARY, "a|high|w1||");
         assert!(saved.accepted_in(PRIMARY).is_empty());
+    }
+
+    #[test]
+    fn an_acceptance_expires_when_the_rules_say_so() {
+        let mut saved = Saved::default();
+        saved.accept(PRIMARY, "k", "ok for now", 1_000, "ana");
+        assert_eq!(saved.accepted_valid(PRIMARY, 9_999_999).len(), 1);
+        saved.accept_days = Some(30);
+        assert_eq!(saved.accepted_valid(PRIMARY, 1_000 + 29 * 86_400).len(), 1);
+        assert!(saved
+            .accepted_valid(PRIMARY, 1_000 + 30 * 86_400)
+            .is_empty());
     }
 
     #[test]

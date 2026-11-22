@@ -210,6 +210,23 @@ takes a finding out of the score, the lights and the counts, with an optional no
 why, and lists it apart under *Accepted*, where it can be brought back. A finding that
 gets worse (say, from important to urgent) comes back by itself.
 
+## Your rules
+
+What matters is not the same everywhere, so **Settings → Your rules** lets a team decide:
+
+- how severe each check is here: more, less, or off. A company can make "users without
+  two-factor" urgent and turn "unused credentials" off;
+- whether accepting a finding needs a written reason;
+- how many days an acceptance lasts before the finding comes back for another look.
+
+The score, the lights, the alerts and the audit log all follow those rules.
+
+**nbuddyn watches; it does not block.** It cannot stop a risky workflow from being
+published, because that would mean writing to n8n, and nbuddyn only reads. What it can do
+is tell something that can act: point the alert webhook at an n8n workflow of your own
+that, say, deactivates the offending workflow through n8n's API or opens a ticket. The
+decision to act stays with you and inside n8n.
+
 ## For AI assistants (MCP)
 
 Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
@@ -359,7 +376,7 @@ directory and survive restarts and updates.
 ## Releases
 
 Versions are listed in the [changelog](CHANGELOG.md). Images are tagged by version
-(`ghcr.io/diegoparras/nbuddyn:0.16.0`) and `latest`, signed, and carry a bill of
+(`ghcr.io/diegoparras/nbuddyn:0.17.0`) and `latest`, signed, and carry a bill of
 materials. How to verify one, how to report a vulnerability, and what an attacker who
 took over nbuddyn would and would not get, are in [SECURITY.md](SECURITY.md).
 

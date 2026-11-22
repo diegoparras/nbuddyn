@@ -811,7 +811,9 @@
           state.busy = false;
           if (answer.ok) { toast(ui.accepted_toast); return load(); }
           ok.disabled = false;
-          toast(ui.save_failed);
+          state.busy = true;
+          toast((answer.wrong || []).indexOf("note") >= 0 ? ui.note_required : ui.save_failed);
+          note.focus();
         });
       });
       li.appendChild(form);
@@ -1222,6 +1224,47 @@
                   ["sec_general", [["lang", "select"], ["interval_seconds", "number"], ["history_days", "number"]]],
                   ["sec_alerts", [["telegram_token", "text"], ["telegram_chat", "text"], ["webhook_url", "text"], ["alert_level", "choice:high,medium"], ["alert_changes", "choice:false,true"]]]];
 
+  /* The team's own rules: how severe each check is here, and how accepting works. */
+  function policyCard(ui) {
+    var card = h("div", "card", h("h2", null, ui.sec_policy)), body = h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:75%;height:16px" }));
+    card.appendChild(body);
+    get("api/policy?lang=" + encodeURIComponent(state.lang)).then(function (policy) {
+      var levels = [["default", ui.level_default], ["high", ui.urgent], ["medium", ui.important], ["low", ui.minor], ["info", ui.info], ["off", ui.level_off]];
+      var selects = {};
+      var rows = policy.rules.map(function (rule) {
+        var select = h("select", { "aria-label": rule.title });
+        levels.forEach(function (l) { select.appendChild(h("option", { value: l[0], text: l[1] })); });
+        select.value = rule.level;
+        select.addEventListener("change", function () { state.busy = true; });
+        selects[rule.check] = select;
+        return [[rule.title], [select]];
+      });
+      var needs = h("select", { id: "policy_note" });
+      [["false", ui.accept_needs_note_false], ["true", ui.accept_needs_note_true]].forEach(function (o) { needs.appendChild(h("option", { value: o[0], text: o[1] })); });
+      needs.value = String(policy.accept_needs_note);
+      var days = h("input", { type: "number", id: "policy_days", min: 0, max: 3650, value: policy.accept_days });
+      var save = h("button", { type: "button", class: "btn", text: ui.save });
+      save.addEventListener("click", function () {
+        var chosen = {};
+        Object.keys(selects).forEach(function (check) { chosen[check] = selects[check].value; });
+        save.disabled = true;
+        send("api/policy", { levels: chosen, accept_needs_note: needs.value === "true", accept_days: Number(days.value) || 0 }).then(function (answer) {
+          save.disabled = false;
+          state.busy = false;
+          toast(answer.ok ? ui.saved : ui.invalid);
+          if (answer.ok) setTimeout(load, 1200);
+        });
+      });
+      body.replaceWith(h("div", null,
+        h("p", { class: "hint", style: "margin:0;padding:14px 18px 6px", text: ui.policy_help }),
+        tableOf([[ui.what_to_do === undefined ? "" : ui.nav_findings], [ui.col_status, "num"]], rows),
+        h("div", "field", h("label", { htmlFor: "policy_note", text: ui.set_accept_needs_note }), needs),
+        h("div", "field", h("label", { htmlFor: "policy_days", text: ui.set_accept_days }), days, h("div", "help", ui.help_accept_days)),
+        h("div", "field", save)));
+    }).catch(function () {});
+    return card;
+  }
+
   /* Who can come in, and with what role. */
   function usersCard(ui) {
     var card = h("div", "card", h("h2", null, ui.users)), body = h("div", null, h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:70%;height:16px" })));
@@ -1389,6 +1432,7 @@
       });
       form.appendChild(h("div", "card", h("h2", null, ui.backup),
         h("div", { class: "field" }, h("a", { class: "btn", href: at("api/export/history"), download: "" }, icon("download"), ui.download_backup), h("div", "help", ui.backup_help))));
+      form.appendChild(policyCard(ui));
       if (state.me && !state.me.open) { form.appendChild(usersCard(ui)); form.appendChild(auditCard(ui)); }
       form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: (s.secrets_key === "data" ? ui.secrets_data_help + " " : "") + ui.read_only })));
       form.appendChild(h("div", "savebar", status, save));

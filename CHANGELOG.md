@@ -3,6 +3,11 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## 0.17.0
+
+- **Your rules**: per-check severity, a required reason when accepting, and
+  acceptances that expire.
+
 ## 0.16.0
 
 - **Single sign-on** with OpenID Connect: Google, Microsoft Entra, Okta, Keycloak.
