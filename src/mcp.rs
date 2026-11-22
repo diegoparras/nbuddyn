@@ -2,7 +2,7 @@
 //!
 //! It speaks the Model Context Protocol over plain HTTP: every request is one
 //! JSON-RPC message in a POST and gets one JSON answer. It keeps no session,
-//! offers three tools that only read what the page already shows, and is off
+//! offers four tools that only read what the page already shows, and is off
 //! unless a token is configured.
 
 use std::sync::Arc;
@@ -111,7 +111,19 @@ fn tools() -> Value {
         "description": "Language of titles and advice. Defaults to the server's language.",
     });
     let read_only = json!({ "readOnlyHint": true, "openWorldHint": false });
+    let instance = json!({
+        "type": "string",
+        "description": "Which n8n, by the id or name list_instances gives. Defaults to the first.",
+    });
     json!([
+        {
+            "name": "list_instances",
+            "title": "n8n instances",
+            "description": "The n8n instances nbuddyn watches, each with its score and how many \
+                urgent findings it has. Call it first when there may be more than one.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": read_only,
+        },
         {
             "name": "get_status",
             "title": "n8n status",
@@ -120,7 +132,7 @@ fn tools() -> Value {
                 processors, task runners and Redis memory.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "lang": lang },
+                "properties": { "lang": lang, "instance": instance },
                 "additionalProperties": false,
             },
             "annotations": read_only,
@@ -139,6 +151,7 @@ fn tools() -> Value {
                         "description": "Only findings of this severity. Omit for all.",
                     },
                     "lang": lang,
+                    "instance": instance,
                 },
                 "additionalProperties": false,
             },
@@ -159,6 +172,7 @@ fn tools() -> Value {
                         "maximum": web::MAX_SPAN,
                         "description": "How many days back, ending today. Defaults to 30.",
                     },
+                    "instance": instance,
                 },
                 "additionalProperties": false,
             },
@@ -175,18 +189,34 @@ async fn call(state: &AppState, params: &Value) -> Result<Value, (i64, String)> 
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
     let lang = args.get("lang").and_then(Value::as_str).map(Lang::parse);
 
+    // An instance can be named by its id or by its name; none means the first.
+    let wanted = args.get("instance").and_then(Value::as_str);
+    let found = match wanted {
+        None => None,
+        Some(wanted) => Some(
+            web::instance_id(state, wanted)
+                .await
+                .ok_or((INVALID_PARAMS, format!("no instance called {wanted}")))?,
+        ),
+    };
+    let instance = found.as_deref();
+
     let answer = match name {
-        "get_status" => status(web::current_report(state, lang).await),
+        "list_instances" => {
+            let effective = state.effective().await;
+            json!({ "instances": web::summaries(state, &effective).await })
+        }
+        "get_status" => status(web::current_report(state, lang, instance).await),
         "list_findings" => {
             let severity = args.get("severity").and_then(Value::as_str);
-            findings(web::current_report(state, lang).await, severity)
+            findings(web::current_report(state, lang, instance).await, severity)
         }
         "get_history" => {
             let days = args
                 .get("days")
                 .and_then(Value::as_u64)
                 .and_then(|d| u32::try_from(d).ok());
-            web::current_history(state, days).await
+            web::current_history(state, days, instance).await
         }
         _ => return Err((INVALID_PARAMS, format!("unknown tool {name}"))),
     };
@@ -246,7 +276,7 @@ mod tests {
     fn every_tool_is_declared_read_only() {
         let tools = tools();
         let tools = tools.as_array().unwrap();
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
         for tool in tools {
             assert_eq!(
                 tool["annotations"]["readOnlyHint"], true,

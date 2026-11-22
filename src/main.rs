@@ -12,6 +12,7 @@ mod settings;
 mod sqlite;
 mod web;
 
+use std::collections::HashMap;
 use std::env;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -22,13 +23,12 @@ use tokio::sync::{Notify, RwLock};
 
 use crate::history::History;
 use crate::model::Snapshot;
-use crate::settings::{Defaults, Effective};
-use crate::web::{AppState, Inventory, Scan};
+use crate::settings::{Defaults, Instance};
+use crate::web::{AppState, Inventory, Runtime, Scan};
 
 /// What only the environment can set: how to reach n8n's database, who may
 /// open the page, and where nbuddyn keeps its own files.
 struct Config {
-    database_url: String,
     listen: String,
     user: String,
     password: Option<String>,
@@ -78,6 +78,8 @@ impl Config {
         }
 
         let defaults = Defaults {
+            database_url: database_url.clone(),
+            name: var("NBUDDYN_NAME").unwrap_or_else(|| "n8n".into()),
             n8n_url: var("NBUDDYN_N8N_URL").unwrap_or_default(),
             lang: var("NBUDDYN_LANG").unwrap_or_else(|| "en".into()),
             interval_seconds: number("NBUDDYN_INTERVAL_SECONDS", 300)?,
@@ -100,7 +102,6 @@ impl Config {
         }
 
         Ok(Self {
-            database_url,
             listen: var("NBUDDYN_LISTEN").unwrap_or_else(|| "0.0.0.0:8787".into()),
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
             password,
@@ -147,18 +148,13 @@ async fn main() -> ExitCode {
         user: config.user.clone(),
         password: config.password.clone(),
         mcp_token: config.mcp_token.clone(),
-        database: db::label(&config.database_url),
         defaults: config.defaults,
         saved: RwLock::new(saved),
         settings_store,
         settings_error,
         rescan: Notify::new(),
-        latest: RwLock::new(None),
-        last_error: RwLock::new(None),
-        cluster_error: RwLock::new(None),
         history_enabled: config.data_dir.is_some(),
-        history: RwLock::new(None),
-        history_error: RwLock::new(None),
+        runtimes: RwLock::new(HashMap::new()),
     });
 
     let listener = match TcpListener::bind(&config.listen).await {
@@ -174,11 +170,7 @@ async fn main() -> ExitCode {
         config.listen
     );
 
-    tokio::spawn(scan_forever(
-        state.clone(),
-        config.database_url,
-        config.data_dir.map(history::Store::new),
-    ));
+    tokio::spawn(scan_forever(state.clone(), config.data_dir));
 
     let served = axum::serve(listener, web::router(state))
         .with_graceful_shutdown(shutdown())
@@ -192,33 +184,50 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Scans on start, then on every interval or as soon as the settings change.
-/// A failed scan keeps the previous result on screen and records why the new
-/// one failed.
-async fn scan_forever(state: Arc<AppState>, database_url: String, store: Option<history::Store>) {
-    // Loaded on the first scan that can read it, then kept here between scans.
-    let mut history: Option<History> = None;
+/// Scans every instance on start, then on every interval or as soon as the
+/// settings change. A failed scan keeps the previous result on screen and
+/// records why the new one failed.
+async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
+    // Loaded on the first scan that can read them, then kept between scans.
+    let mut histories: HashMap<String, History> = HashMap::new();
     loop {
         let effective = state.effective().await;
-        match scan_once(
-            &state,
-            &database_url,
-            &effective,
-            store.as_ref(),
-            &mut history,
-        )
-        .await
-        {
-            Ok(scan) => {
-                println!("scan ok: {} findings", scan.findings.len());
-                *state.latest.write().await = Some(scan);
-                *state.last_error.write().await = None;
+        histories.retain(|id, _| effective.instances.iter().any(|i| i.id == *id));
+        for instance in &effective.instances {
+            let runtime = state.runtime(&instance.id).await;
+            let store = data_dir
+                .as_deref()
+                .map(|dir| history::Store::new(dir, &instance.id));
+            let mut history = histories.remove(&instance.id);
+            let scanned = scan_once(
+                &state,
+                &runtime,
+                instance,
+                store.as_ref(),
+                &mut history,
+                effective.history_days,
+            )
+            .await;
+            if let Some(history) = history {
+                histories.insert(instance.id.clone(), history);
             }
-            Err(reason) => {
-                eprintln!("scan failed: {reason}");
-                *state.last_error.write().await = Some(reason);
+            match scanned {
+                Ok(scan) => {
+                    println!(
+                        "scan ok: {}: {} findings",
+                        instance.name,
+                        scan.findings.len()
+                    );
+                    *runtime.latest.write().await = Some(scan);
+                    *runtime.last_error.write().await = None;
+                }
+                Err(reason) => {
+                    eprintln!("scan failed: {}: {reason}", instance.name);
+                    *runtime.last_error.write().await = Some(reason);
+                }
             }
         }
+        state.forget_runtimes_except(&effective.instances).await;
         tokio::select! {
             () = tokio::time::sleep(effective.interval) => {}
             () = state.rescan.notified() => {}
@@ -228,17 +237,18 @@ async fn scan_forever(state: Arc<AppState>, database_url: String, store: Option<
 
 async fn scan_once(
     state: &AppState,
-    database_url: &str,
-    effective: &Effective,
+    runtime: &Runtime,
+    instance: &Instance,
     store: Option<&history::Store>,
     history: &mut Option<History>,
+    history_days: u32,
 ) -> Result<Scan, String> {
-    let source = db::connect(database_url, effective.timezone.as_deref()).await?;
+    let source = db::connect(&instance.database_url, instance.timezone.as_deref()).await?;
     let mut snapshot = source.read_snapshot().await?;
 
     // The database is the report; Redis adds the cluster to it. A Redis that
     // cannot be read is reported without losing the rest.
-    let cluster_error = match &effective.redis {
+    let cluster_error = match &instance.redis {
         None => None,
         Some(config) => match cluster::read_cluster(config).await {
             Ok(cluster) => {
@@ -246,24 +256,27 @@ async fn scan_once(
                 None
             }
             Err(reason) => {
-                eprintln!("cluster read failed: {reason}");
+                eprintln!("cluster read failed: {}: {reason}", instance.name);
                 Some(reason)
             }
         },
     };
-    *state.cluster_error.write().await = cluster_error;
-    snapshot.runners = runners::probe_all(&effective.runners).await;
+    *runtime.cluster_error.write().await = cluster_error;
+    snapshot.runners = runners::probe_all(&instance.runners).await;
     let scan = evaluate(&snapshot);
 
     if let Some(store) = store {
         // The history keeps the score people see: without what they accepted.
-        let score = web::score_without_accepted(&scan.findings, &*state.saved.read().await);
-        let outcome = remember(&source, store, history, score, effective.history_days).await;
+        let score = web::score_without_accepted(
+            &scan.findings,
+            state.saved.read().await.accepted_in(&instance.id),
+        );
+        let outcome = remember(&source, store, history, score, history_days).await;
         if let Err(reason) = &outcome {
-            eprintln!("history not updated: {reason}");
+            eprintln!("history not updated: {}: {reason}", instance.name);
         }
-        *state.history_error.write().await = outcome.err();
-        *state.history.write().await = history.clone().map(Arc::new);
+        *runtime.history_error.write().await = outcome.err();
+        *runtime.history.write().await = history.clone().map(Arc::new);
     }
     Ok(scan)
 }

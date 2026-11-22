@@ -65,6 +65,15 @@ n8n still has, so the history does not start empty.
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
+## Several n8n instances
+
+One nbuddyn can watch several n8n: production and staging, or one per client. The first
+is the one in `NBUDDYN_DATABASE_URL`. Add the others in **Settings**, with a name and a
+database address (Postgres or SQLite). Each has its own score, findings, accepted
+findings, cluster view and history, and a selector in the top bar switches between them.
+Database passwords added this way are kept in `settings.json` in the data directory and
+are never sent back to the browser.
+
 ## Settings on the page
 
 The **Settings** button changes, without a restart: n8n's address, the default language,
@@ -88,8 +97,8 @@ gets worse (say, from important to urgent) comes back by itself.
 ## For AI assistants (MCP)
 
 Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
-assistant such as Claude can ask about your n8n in plain words. It offers three tools,
-all read-only: `get_status`, `list_findings` and `get_history`. They return what the page
+assistant such as Claude can ask about your n8n in plain words. It offers four tools,
+all read-only: `list_instances`, `get_status`, `list_findings` and `get_history`. They return what the page
 shows and nothing else: no secrets, no execution data, and no way to change n8n.
 
 The endpoint is off without a token, and every request must carry it as
@@ -153,6 +162,7 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 |---|---|---|
 | `NBUDDYN_DATABASE_URL` | required | n8n's database: `postgres://user:password@host:5432/n8n` (use a read-only user) or `sqlite:/path/to/database.sqlite`. |
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
+| `NBUDDYN_NAME` | `n8n` | What the first instance is called on the page. |
 | `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |

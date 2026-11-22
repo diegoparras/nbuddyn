@@ -32,7 +32,7 @@
 
   /* Top bar */
   .top { position: sticky; top: 0; z-index: 10; background: rgba(10, 14, 19, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
-  .top .shell { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 60px; }
+  .top .shell { display: flex; align-items: center; gap: 0 20px; min-height: 60px; }
   .brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--mono); letter-spacing: 0.02em; text-decoration: none; }
   nav { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; align-self: stretch; }
   nav::-webkit-scrollbar { display: none; }
@@ -49,6 +49,20 @@
   .iconbtn svg { flex: none; }
   .spin svg { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  select.which { max-width: 190px; color: var(--ink); font-family: var(--sans); font-size: 14px; }
+  .fleet { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .fleet button { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; min-width: 0; }
+  .fleet button:hover { background: var(--raised); }
+  .fleet button[aria-current="true"] { border-color: var(--amber); }
+  .fleet .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fleet .how { display: flex; align-items: baseline; gap: 10px; font: 13px var(--mono); color: var(--muted); margin-top: 2px; }
+  .fleet .how b { font-size: 22px; font-weight: 600; }
+  .inst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .inst .who { flex: 1 1 200px; min-width: 0; }
+  .inst .who small { display: block; font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .addform { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px; }
+  .addform input { flex: 1 1 180px; }
+  .addform input.wide { flex: 3 1 300px; }
   select.lang { height: 36px; background: var(--bg); color: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; font: 500 13px var(--mono); }
 
   /* Shared pieces */
@@ -214,12 +228,15 @@
   footer { margin-top: 28px; font: 12px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
   .printhead { display: none; }
 
+  @media (max-width: 1240px) { .sweep { display: none; } }
+  @media (max-width: 1040px) { .iconbtn .label { display: none; } }
   @media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 720px) {
     .shell { padding: 0 16px; }
-    .top .shell { padding-top: 8px; }
+    .top .shell { flex-wrap: wrap; padding-top: 8px; }
     nav { order: 3; flex: 1 1 100%; height: 44px; margin: 0 -16px; padding: 0 8px; }
     .sweep, .iconbtn .label { display: none; }
+    select.which { max-width: 120px; }
     .hero { padding: 20px; }
     .brief h1 { font-size: 26px; }
     th, td { padding-left: 12px; padding-right: 12px; }
@@ -234,7 +251,7 @@
   @media print {
     :root { --bg: #fff; --surface: #fff; --raised: #f3f4f6; --line: #d5d9e0; --line2: #b9c0cb; --ink: #111827; --soft: #374151; --muted: #4b5563;
             --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff; --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; --blue-bg: #fff; }
-    .top, .filters, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
+    .top, .fleet, .filters, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
     .view { margin-bottom: 28px; }
     .printhead { display: block; font: 600 16px var(--mono); margin-bottom: 16px; }
     .gcard, figure, .tile, .todo li { break-inside: avoid; }
@@ -250,6 +267,7 @@
       <svg width="30" height="30" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="15.5" fill="none" stroke="#F5B83D" stroke-width="1.5"/><path d="M5 17h8M21 17h8M17 5v4M17 25v4" stroke="#F5B83D" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="17" r="3" fill="#F5B83D"/></svg>
       nbuddyn
     </a>
+    <select class="lang which" id="which" hidden></select>
     <nav id="nav"></nav>
     <div class="tools">
       <span class="sweep" id="sweep"></span>
@@ -291,6 +309,7 @@
 
   var state = {
     lang: stored("nbuddyn.lang") || (navigator.language || "en").slice(0, 2),
+    instance: stored("nbuddyn.instance") || "",
     view: "overview",
     report: null, history: null, week: null,
     range: Number(stored("nbuddyn.range")) || 30,
@@ -338,6 +357,18 @@
     return node;
   }
 
+  /* Adds the instance being looked at to an API address. */
+  function at(path) {
+    return path + (path.indexOf("?") < 0 ? "?" : "&") + "instance=" + encodeURIComponent(state.instance);
+  }
+  function switchTo(id) {
+    state.instance = id;
+    store("nbuddyn.instance", id);
+    state.open = {}; state.expanded = {};
+    state.filter = { severity: "all", query: "", light: null };
+    state.history = null; state.week = null;
+    return load().then(function () { if (state.view === "settings") renderSettings(); });
+  }
   function get(path) {
     return fetch(path, { credentials: "same-origin" }).then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); });
   }
@@ -410,6 +441,13 @@
     document.documentElement.lang = r.lang;
     $("lang").value = r.lang;
     $("lang").setAttribute("aria-label", ui.language);
+    var which = $("which");
+    which.hidden = r.instances.length < 2;
+    which.setAttribute("aria-label", ui.instances);
+    which.replaceChildren();
+    r.instances.forEach(function (i) { which.appendChild(h("option", { value: i.id, text: i.name })); });
+    which.value = r.instance.id;
+    document.title = (r.instances.length > 1 ? r.instance.name + " · " : "") + "nbuddyn";
     var urgent = r.available ? r.totals.urgent : 0;
     var open = r.available ? r.totals.urgent + r.totals.important + r.totals.minor + r.totals.info : 0;
     var nav = $("nav");
@@ -484,7 +522,18 @@
         r.available ? h("div", "actions",
           h("a", { class: "btn primary", href: "#/findings", text: ui.see_findings }),
           h("a", { class: "btn", href: "#/history", text: ui.history })) : null));
-    if (!r.available) return fill(view, hero);
+    var fleet = null;
+    if (r.instances.length > 1) {
+      fleet = h("div", "fleet");
+      r.instances.forEach(function (i) {
+        fleet.appendChild(h("button", { type: "button", "aria-current": String(i.id === r.instance.id), on: { click: function () { if (i.id !== r.instance.id) switchTo(i.id); } } },
+          h("div", "who", i.name),
+          i.available
+            ? h("div", "how", h("b", i.zone, i.score), i.urgent ? h("span", "risk", i.urgent + " " + ui.urgent_short) : h("span", "ok", ui.ok))
+            : h("div", "how", ui.first_scan)));
+      });
+    }
+    if (!r.available) return fill(view, fleet, hero);
 
     var lights = h("div", "lights");
     r.lights.forEach(function (l) {
@@ -542,7 +591,7 @@
       h("span", null, h("b", null, num(inv.credentials)), ui.inv_credentials),
       h("span", null, h("b", null, num(inv.users)), ui.inv_users));
 
-    fill(view, hero, lights, side.childNodes.length ? h("div", "split", todo, side) : todo, inventory);
+    fill(view, fleet, hero, lights, side.childNodes.length ? h("div", "split", todo, side) : todo, inventory);
   }
 
   /* ---------- Findings ---------- */
@@ -557,7 +606,7 @@
       form.addEventListener("submit", function (ev) {
         ev.preventDefault();
         ok.disabled = true;
-        send("api/accept", { key: item.key, note: note.value }).then(function (answer) {
+        send(at("api/accept"), { key: item.key, note: note.value }).then(function (answer) {
           state.busy = false;
           if (answer.ok) { toast(ui.accepted_toast); return load(); }
           ok.disabled = false;
@@ -608,7 +657,7 @@
           h("div", "what", h("div", null, a.title), whereOf(a, ui)),
           h("div", "detail", a.detail || ""),
           r.writable ? h("div", "act", h("button", { type: "button", class: "btn small", text: ui.restore, on: { click: function () {
-            send("api/unaccept", { key: a.key }).then(function () { toast(ui.restored_toast); load(); });
+            send(at("api/unaccept"), { key: a.key }).then(function () { toast(ui.restored_toast); load(); });
           } } })) : null);
         if (a.note || a.at) li.appendChild(h("div", "note", a.note ? "“" + a.note + "”" : "", a.at ? h("small", null, new Date(a.at * 1000).toLocaleDateString(r.lang)) : null));
         rows.appendChild(li);
@@ -878,22 +927,74 @@
   }
 
   /* ---------- Settings ---------- */
-  var SECTIONS = [["sec_n8n", [["n8n_url", "text"], ["lang", "select"], ["timezone", "text"]]],
-                  ["sec_scan", [["interval_seconds", "number"], ["history_days", "number"]]],
-                  ["sec_cluster", [["redis_url", "text"], ["runner_urls", "area"]]]];
+  var SECTIONS = [["sec_instance", [["name", "text"], ["database_url", "text"], ["n8n_url", "text"], ["timezone", "text"]]],
+                  ["sec_cluster", [["redis_url", "text"], ["runner_urls", "area"]]],
+                  ["sec_general", [["lang", "select"], ["interval_seconds", "number"], ["history_days", "number"]]]];
+
+  /* The list of instances, with a form to add one and a button to remove each. */
+  function instancesCard(s, ui) {
+    var r = state.report, card = h("div", "card", h("h2", null, ui.instances));
+    r.instances.forEach(function (i) {
+      var row = h("div", "inst",
+        h("div", "who", i.name, h("small", null, i.available ? i.score + "/100" : ui.first_scan)),
+        i.id === r.instance.id ? h("span", "pill ok", ui.watching) : h("button", { type: "button", class: "btn small", text: ui.see, on: { click: function () { switchTo(i.id); } } }));
+      if (s.writable && i.id !== "main") row.appendChild(h("button", { type: "button", class: "btn small", text: ui.remove_instance, on: { click: function () {
+        if (!window.confirm(ui.remove_confirm + "\n\n" + i.name)) return;
+        send("api/instances/remove?instance=" + encodeURIComponent(i.id)).then(function (answer) {
+          if (!answer.ok) return toast(ui.save_failed);
+          toast(ui.instance_removed);
+          if (i.id === state.instance) state.instance = "";
+          setTimeout(function () { switchTo(state.instance); }, 800);
+        });
+      } } }));
+      card.appendChild(row);
+    });
+    if (s.writable) {
+      var name = h("input", { type: "text", placeholder: ui.set_name, "aria-label": ui.set_name, maxLength: 60 });
+      var url = h("input", { type: "text", class: "wide", placeholder: "postgres://user:password@host:5432/n8n", "aria-label": ui.set_database_url, spellcheck: false, autocomplete: "off" });
+      var add = h("button", { type: "submit", class: "btn", text: ui.add });
+      var form = h("form", "addform", name, url, add);
+      [name, url].forEach(function (input) { input.addEventListener("input", function () { state.busy = true; }); });
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        add.disabled = true;
+        send("api/instances", { name: name.value, database_url: url.value }).then(function (answer) {
+          add.disabled = false;
+          if (!answer.ok) {
+            var wrong = answer.wrong || [];
+            (wrong.indexOf("name") >= 0 ? name : url).focus();
+            return toast(wrong.length ? ui.invalid + ": " + wrong.map(function (w) { return ui["set_" + w] || w; }).join(", ") : ui.save_failed);
+          }
+          state.busy = false;
+          toast(ui.instance_added);
+          setTimeout(function () { load().then(function () { if (state.view === "settings") renderSettings(); }); }, 1500);
+        });
+      });
+      card.appendChild(h("div", { class: "field", style: "border-bottom:0;padding-bottom:0" }, h("label", null, ui.add_instance)));
+      card.appendChild(form);
+      card.appendChild(h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.help_database_url }));
+    }
+    return card;
+  }
 
   function renderSettings() {
     var ui = state.report.ui, view = $("view-settings");
     fill(view, h("header", null, h("h1", null, ui.settings)), h("div", "card empty", h("p", null, ui.loading)));
-    return get("api/settings").then(function (s) {
+    return get(at("api/settings")).then(function (s) {
       var status = h("span", { class: "status", role: "status" });
       var save = h("button", { type: "submit", class: "btn primary", text: ui.save, hidden: !s.writable });
       var form = h("form", { class: "settings stack", novalidate: true });
       if (!s.writable) form.appendChild(h("div", "notice", h("div", null, ui.settings_readonly), s.error ? h("div", "why", s.error) : null));
+      form.appendChild(instancesCard(s, ui));
       SECTIONS.forEach(function (section) {
-        var card = h("div", "card", h("h2", null, ui[section[0]]));
+        var title = section[0] === "sec_instance" ? s.instance.name : ui[section[0]];
+        var card = h("div", "card", h("h2", null, title));
         section[1].forEach(function (f) {
           var name = f[0], input;
+          if (name === "database_url" && s.primary) {
+            card.appendChild(h("div", "field", h("label", null, ui.set_database_url), h("div", "mono", s.database), h("div", "help", ui.primary_note + ".")));
+            return;
+          }
           if (f[1] === "select") {
             input = h("select");
             [["en", "English"], ["es", "Español"], ["pt", "Português"]].forEach(function (o) { input.appendChild(h("option", { value: o[0], text: o[1] })); });
@@ -911,7 +1012,7 @@
         form.appendChild(card);
       });
       var about = h("dl", "kv");
-      [[ui.env_database, s.database], [ui.env_mcp, s.mcp ? ui.on : ui.off], ["nbuddyn", s.version]].forEach(function (row) {
+      [[ui.env_mcp, s.mcp ? ui.on : ui.off], ["nbuddyn", s.version]].forEach(function (row) {
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });
@@ -920,7 +1021,7 @@
       form.addEventListener("submit", function (ev) {
         ev.preventDefault();
         var values = {};
-        SECTIONS.forEach(function (section) { section[1].forEach(function (f) { values[f[0]] = $("set_" + f[0]).value; }); });
+        SECTIONS.forEach(function (section) { section[1].forEach(function (f) { var field = $("set_" + f[0]); if (field) values[f[0]] = field.value; }); });
         save.disabled = true;
         status.textContent = "";
         Array.prototype.forEach.call(form.querySelectorAll(".field"), function (w) {
@@ -928,7 +1029,7 @@
           var old = w.querySelector(".bad");
           if (old) old.remove();
         });
-        send("api/settings", values).then(function (answer) {
+        send(at("api/settings"), values).then(function (answer) {
           save.disabled = false;
           if (answer.ok) {
             state.busy = false;
@@ -975,20 +1076,24 @@
     if (changed) window.scrollTo(0, 0);
   }
   function loadHistory() {
-    return get("api/history?days=" + state.range).then(function (hist) {
+    return get(at("api/history?days=" + state.range)).then(function (hist) {
       state.history = hist;
       if (state.report) { renderChrome(); renderHistory(); }
     }).catch(function (err) { console.error("nbuddyn", err); });
   }
   function load() {
-    var week = get("api/history?days=7").then(function (w) { state.week = w; }).catch(function () {});
-    var report = get("api/report?lang=" + encodeURIComponent(state.lang)).then(function (r) { state.report = r; });
+    var week = get(at("api/history?days=7")).then(function (w) { state.week = w; }).catch(function () {});
+    var report = get(at("api/report?lang=" + encodeURIComponent(state.lang))).then(function (r) {
+      state.report = r;
+      state.instance = r.instance.id;
+    });
     return Promise.all([report, week]).then(function () {
       renderAll();
       return loadHistory();
     }).catch(function (err) { console.error("nbuddyn", err); });
   }
 
+  $("which").addEventListener("change", function () { switchTo($("which").value); });
   $("lang").addEventListener("change", function () {
     state.lang = $("lang").value;
     store("nbuddyn.lang", state.lang);
@@ -1002,7 +1107,7 @@
     var poll = function () {
       tries += 1;
       setTimeout(function () {
-        get("api/report?lang=" + encodeURIComponent(state.lang)).then(function (r) {
+        get(at("api/report?lang=" + encodeURIComponent(state.lang))).then(function (r) {
           if (r.generated_at !== before || tries >= 20) {
             state.scanning = false;
             return load();

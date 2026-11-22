@@ -561,6 +561,22 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub instances: &'static str,
+    pub set_name: &'static str,
+    pub set_database_url: &'static str,
+    pub help_database_url: &'static str,
+    pub add_instance: &'static str,
+    pub add: &'static str,
+    pub remove_instance: &'static str,
+    pub remove_confirm: &'static str,
+    pub instance_added: &'static str,
+    pub instance_removed: &'static str,
+    pub first_scan: &'static str,
+    pub sec_instance: &'static str,
+    pub sec_general: &'static str,
+    pub urgent_short: &'static str,
+    pub watching: &'static str,
+    pub primary_note: &'static str,
 }
 
 pub fn ui_text(lang: Lang) -> UiText {
@@ -1114,6 +1130,86 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        instances: lang.pick(
+            "Your n8n instances",
+            "Tus n8n",
+            "Os seus n8n",
+        ),
+        set_name: lang.pick(
+            "Name",
+            "Nombre",
+            "Nome",
+        ),
+        set_database_url: lang.pick(
+            "Database",
+            "Base de datos",
+            "Banco de dados",
+        ),
+        help_database_url: lang.pick(
+            "As postgres://user:password@host:5432/n8n or sqlite:/path/database.sqlite. Use a read-only user. The password is never shown here.",
+            "Como postgres://usuario:clave@host:5432/n8n o sqlite:/ruta/database.sqlite. Usá un usuario de solo lectura. La clave nunca se muestra acá.",
+            "Como postgres://usuario:senha@host:5432/n8n ou sqlite:/caminho/database.sqlite. Use um usuário somente leitura. A senha nunca é mostrada aqui.",
+        ),
+        add_instance: lang.pick(
+            "Add an n8n",
+            "Agregar un n8n",
+            "Adicionar um n8n",
+        ),
+        add: lang.pick(
+            "Add",
+            "Agregar",
+            "Adicionar",
+        ),
+        remove_instance: lang.pick(
+            "Remove",
+            "Quitar",
+            "Remover",
+        ),
+        remove_confirm: lang.pick(
+            "Stop watching this n8n? Its history file stays on disk.",
+            "¿Dejar de vigilar este n8n? Su archivo de historial queda en el disco.",
+            "Parar de vigiar este n8n? O arquivo de histórico dele fica no disco.",
+        ),
+        instance_added: lang.pick(
+            "Added. Its first scan is running.",
+            "Agregado. Ya está corriendo su primer barrido.",
+            "Adicionado. A primeira varredura já está rodando.",
+        ),
+        instance_removed: lang.pick(
+            "Removed.",
+            "Quitado.",
+            "Removido.",
+        ),
+        first_scan: lang.pick(
+            "waiting for its first scan",
+            "esperando su primer barrido",
+            "aguardando a primeira varredura",
+        ),
+        sec_instance: lang.pick(
+            "This n8n",
+            "Este n8n",
+            "Este n8n",
+        ),
+        sec_general: lang.pick(
+            "General",
+            "General",
+            "Geral",
+        ),
+        urgent_short: lang.pick(
+            "urgent",
+            "urgentes",
+            "urgentes",
+        ),
+        watching: lang.pick(
+            "Watching",
+            "Viendo",
+            "Vendo",
+        ),
+        primary_note: lang.pick(
+            "Set in the environment",
+            "Se configura en el entorno",
+            "Definido no ambiente",
         ),
     }
 }

@@ -1,5 +1,6 @@
 //! The web page and the JSON report behind it.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Query, Request, State};
@@ -18,7 +19,7 @@ use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::mcp;
 use crate::radar::{Finding, Severity};
 use crate::runners::RunnerProbe;
-use crate::settings::{self, Defaults, Effective, Saved};
+use crate::settings::{self, Accepted, Defaults, Effective, Instance, Saved, PRIMARY};
 
 /// Result of the latest scan, kept in memory.
 #[derive(Debug, Clone, Default)]
@@ -44,8 +45,6 @@ pub struct AppState {
     pub user: String,
     /// `None` means the page is open to anyone who can reach it.
     pub password: Option<String>,
-    /// `host/database` of n8n's Postgres, to show which n8n is being read.
-    pub database: String,
     /// Starting values from the environment.
     pub defaults: Defaults,
     /// What was saved from the page, including the accepted findings.
@@ -56,20 +55,60 @@ pub struct AppState {
     pub settings_error: Option<String>,
     /// Wakes the scanner so a change shows without waiting for the interval.
     pub rescan: Notify,
-    pub latest: RwLock<Option<Scan>>,
-    pub last_error: RwLock<Option<String>>,
-    /// Why Redis could not be read in the latest scan, if it could not.
-    pub cluster_error: RwLock<Option<String>>,
     /// Whether nbuddyn was given a place to keep its own history.
     pub history_enabled: bool,
-    pub history: RwLock<Option<Arc<History>>>,
-    /// Why the history could not be updated in the latest scan, if it could not.
-    pub history_error: RwLock<Option<String>>,
+    /// What the scanner last saw in each instance, by instance id.
+    pub runtimes: RwLock<HashMap<String, Arc<Runtime>>>,
     /// The token MCP clients must present. `None` turns the MCP endpoint off.
     pub mcp_token: Option<String>,
 }
 
+/// What the scanner last saw in one instance.
+#[derive(Default)]
+pub struct Runtime {
+    pub latest: RwLock<Option<Scan>>,
+    pub last_error: RwLock<Option<String>>,
+    /// Why Redis could not be read in the latest scan, if it could not.
+    pub cluster_error: RwLock<Option<String>>,
+    pub history: RwLock<Option<Arc<History>>>,
+    /// Why the history could not be updated in the latest scan, if it could not.
+    pub history_error: RwLock<Option<String>>,
+}
+
 impl AppState {
+    /// The scanner's notes about one instance, started empty on first use.
+    pub async fn runtime(&self, id: &str) -> Arc<Runtime> {
+        if let Some(runtime) = self.runtimes.read().await.get(id) {
+            return runtime.clone();
+        }
+        self.runtimes
+            .write()
+            .await
+            .entry(id.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    /// Drops what was seen in instances that no longer exist.
+    pub async fn forget_runtimes_except(&self, instances: &[Instance]) {
+        self.runtimes
+            .write()
+            .await
+            .retain(|id, _| instances.iter().any(|i| i.id == *id));
+    }
+
+    /// The instance a request is about: the one it names, or the first one
+    /// when it names none or one that is gone.
+    async fn pick(&self, id: Option<&str>) -> (Effective, Instance) {
+        let effective = self.effective().await;
+        let instance = effective
+            .instance(id)
+            .or_else(|| effective.instance(None))
+            .expect("there is always a first instance")
+            .clone();
+        (effective, instance)
+    }
+
     /// The settings in force. What is saved was checked when it was saved, and
     /// the starting values when nbuddyn started, so the fallback is never hit.
     pub async fn effective(&self) -> Effective {
@@ -90,6 +129,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/accept", post(accept))
         .route("/api/unaccept", post(unaccept))
         .route("/api/rescan", post(rescan))
+        .route("/api/instances", post(instance_add))
+        .route("/api/instances/remove", post(instance_remove))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -107,11 +148,19 @@ async fn index() -> Html<&'static str> {
 #[derive(Deserialize)]
 struct ReportQuery {
     lang: Option<String>,
+    instance: Option<String>,
+}
+
+/// Which instance a request is about. Absent means the first one.
+#[derive(Deserialize)]
+struct Which {
+    instance: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct HistoryQuery {
     days: Option<u32>,
+    instance: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -133,40 +182,108 @@ async fn history_report(
     State(state): State<Arc<AppState>>,
     Query(q): Query<HistoryQuery>,
 ) -> Json<HistoryReport> {
-    Json(read_history(&state, q.days).await)
+    Json(read_history(&state, q.days, q.instance.as_deref()).await)
 }
 
-async fn read_history(state: &AppState, days: Option<u32>) -> HistoryReport {
+async fn read_history(
+    state: &AppState,
+    days: Option<u32>,
+    instance: Option<&str>,
+) -> HistoryReport {
     let span = days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
-    let history = state.history.read().await.clone();
+    let (_, instance) = state.pick(instance).await;
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await.clone();
+    let error = runtime.history_error.read().await.clone();
     HistoryReport {
         enabled: state.history_enabled,
-        error: state.history_error.read().await.clone(),
+        error,
         view: history.map(|h| h.view(span)).unwrap_or_default(),
     }
 }
 
 /// The history as the page gets it, for the MCP tools.
-pub async fn current_history(state: &AppState, days: Option<u32>) -> serde_json::Value {
-    serde_json::to_value(read_history(state, days).await).unwrap_or_default()
+pub async fn current_history(
+    state: &AppState,
+    days: Option<u32>,
+    instance: Option<&str>,
+) -> serde_json::Value {
+    serde_json::to_value(read_history(state, days, instance).await).unwrap_or_default()
 }
 
 /// The report as the page gets it, for the MCP tools.
-pub async fn current_report(state: &AppState, lang: Option<Lang>) -> serde_json::Value {
-    serde_json::to_value(read_report(state, lang).await).unwrap_or_default()
+pub async fn current_report(
+    state: &AppState,
+    lang: Option<Lang>,
+    instance: Option<&str>,
+) -> serde_json::Value {
+    serde_json::to_value(read_report(state, lang, instance).await).unwrap_or_default()
+}
+
+/// The id of the instance with this id or, failing that, this name.
+pub async fn instance_id(state: &AppState, wanted: &str) -> Option<String> {
+    let effective = state.effective().await;
+    effective
+        .instances
+        .iter()
+        .find(|i| i.id == wanted)
+        .or_else(|| {
+            effective
+                .instances
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(wanted))
+        })
+        .map(|i| i.id.clone())
+}
+
+/// One line per instance: enough to choose between them.
+pub async fn summaries(state: &AppState, effective: &Effective) -> Vec<InstanceSummary> {
+    let saved = state.saved.read().await.clone();
+    let mut list = Vec::with_capacity(effective.instances.len());
+    for instance in &effective.instances {
+        let runtime = state.runtime(&instance.id).await;
+        let latest = runtime.latest.read().await;
+        let accepted = saved.accepted_in(&instance.id);
+        let open = |scan: &Scan| {
+            scan.findings
+                .iter()
+                .filter(|f| !settings::is_accepted(accepted, &f.key()))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let findings = latest.as_ref().map(open);
+        let score = findings.as_deref().map(crate::radar::score);
+        list.push(InstanceSummary {
+            id: instance.id.clone(),
+            name: instance.name.clone(),
+            available: latest.is_some(),
+            score: score.unwrap_or(0),
+            zone: score.map_or("off", zone_of),
+            urgent: findings.map_or(0, |f| {
+                f.iter().filter(|f| f.severity == Severity::High).count()
+            }),
+        });
+    }
+    list
 }
 
 /// `lang` is what the reader asked for; without it the configured one is used.
-async fn read_report(state: &AppState, lang: Option<Lang>) -> Report {
-    let effective = state.effective().await;
-    let scan = state.latest.read().await.clone();
-    let error = state.last_error.read().await.clone();
-    let cluster_error = state.cluster_error.read().await.clone();
+async fn read_report(state: &AppState, lang: Option<Lang>, instance: Option<&str>) -> Report {
+    let (effective, instance) = state.pick(instance).await;
+    let runtime = state.runtime(&instance.id).await;
+    let scan = runtime.latest.read().await.clone();
+    let error = runtime.last_error.read().await.clone();
+    let cluster_error = runtime.cluster_error.read().await.clone();
     let extras = Extras {
-        saved: state.saved.read().await.clone(),
-        n8n_url: effective.n8n_url,
+        accepted: state.saved.read().await.accepted_in(&instance.id).to_vec(),
+        n8n_url: instance.n8n_url.clone(),
         writable: state.settings_store.is_some(),
         interval_seconds: effective.interval.as_secs(),
+        instances: summaries(state, &effective).await,
+        instance: InstanceRef {
+            id: instance.id.clone(),
+            name: instance.name.clone(),
+        },
     };
     compose_report(
         lang.unwrap_or(effective.lang),
@@ -209,6 +326,9 @@ struct Report {
     writable: bool,
     /// Seconds between scans, so the page can say when the next one is due.
     interval_seconds: u64,
+    /// The instance this report is about, and all of them to switch between.
+    instance: InstanceRef,
+    instances: Vec<InstanceSummary>,
     ui: UiText,
 }
 
@@ -367,23 +487,45 @@ const RUNNERS_LIGHT: (&str, &[&str]) = ("runners", &["runner_down"]);
 
 async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>) -> Json<Report> {
     let lang = q.lang.as_deref().map(Lang::parse);
-    Json(read_report(&state, lang).await)
+    Json(read_report(&state, lang, q.instance.as_deref()).await)
 }
 
 /// What a report needs besides the scan.
 #[derive(Default)]
 struct Extras {
-    saved: Saved,
+    accepted: Vec<Accepted>,
     n8n_url: String,
     writable: bool,
     interval_seconds: u64,
+    instance: InstanceRef,
+    instances: Vec<InstanceSummary>,
+}
+
+/// The instance a report is about.
+#[derive(Clone, Default, Serialize)]
+struct InstanceRef {
+    id: String,
+    name: String,
+}
+
+/// One instance in the list the page switches between.
+#[derive(Clone, Serialize)]
+pub struct InstanceSummary {
+    id: String,
+    name: String,
+    /// False until its first scan works.
+    available: bool,
+    score: u32,
+    /// `risk`, `caution`, `ok`, or `off` before the first scan.
+    zone: &'static str,
+    urgent: usize,
 }
 
 /// The score of the findings nobody accepted.
-pub fn score_without_accepted(findings: &[Finding], saved: &Saved) -> u32 {
+pub fn score_without_accepted(findings: &[Finding], accepted: &[Accepted]) -> u32 {
     let open: Vec<Finding> = findings
         .iter()
-        .filter(|f| !saved.is_accepted(&f.key()))
+        .filter(|f| !settings::is_accepted(accepted, &f.key()))
         .cloned()
         .collect();
     crate::radar::score(&open)
@@ -423,14 +565,14 @@ fn compose_report(
     // listed apart with the note they were accepted with.
     let (accepted, open): (Vec<Finding>, Vec<Finding>) = std::mem::take(&mut scan.findings)
         .into_iter()
-        .partition(|f| extras.saved.is_accepted(&f.key()));
+        .partition(|f| settings::is_accepted(&extras.accepted, &f.key()));
     scan.findings = open;
     let score = crate::radar::score(&scan.findings);
     let accepted = accepted
         .into_iter()
         .map(|f| {
             let key = f.key();
-            let decision = extras.saved.accepted.iter().find(|a| a.key == key);
+            let decision = extras.accepted.iter().find(|a| a.key == key);
             AcceptedView {
                 title: i18n::group_title(lang, f.check, 1),
                 note: decision.map(|a| a.note.clone()).unwrap_or_default(),
@@ -518,6 +660,8 @@ fn compose_report(
         n8n_url: extras.n8n_url.clone(),
         writable: extras.writable,
         interval_seconds: extras.interval_seconds,
+        instance: extras.instance.clone(),
+        instances: extras.instances.clone(),
         ui: ui_text(lang),
     }
 }
@@ -571,18 +715,37 @@ struct SettingsView {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     values: settings::Form,
-    /// Shown for reference; these can only be set in the environment.
+    instance: InstanceRef,
+    /// True for the instance described by the environment: its database
+    /// cannot be changed here and it cannot be removed.
+    primary: bool,
+    /// Where this instance's database is, without the user or the password.
     database: String,
     mcp: bool,
     version: &'static str,
 }
 
-async fn settings_view(State(state): State<Arc<AppState>>) -> Json<SettingsView> {
+async fn settings_view(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
+) -> Json<SettingsView> {
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let values = state
+        .saved
+        .read()
+        .await
+        .form(&state.defaults, &instance.id)
+        .unwrap_or_default();
     Json(SettingsView {
         writable: state.settings_store.is_some(),
         error: state.settings_error.clone(),
-        values: state.saved.read().await.form(&state.defaults),
-        database: state.database.clone(),
+        values,
+        primary: instance.id == PRIMARY,
+        database: crate::db::label(&instance.database_url),
+        instance: InstanceRef {
+            id: instance.id,
+            name: instance.name,
+        },
         mcp: state.mcp_token.is_some(),
         version: env!("CARGO_PKG_VERSION"),
     })
@@ -655,13 +818,48 @@ async fn save_with(
 
 async fn settings_save(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
     headers: HeaderMap,
     Json(form): Json<settings::Form>,
 ) -> Response {
+    let id = q.instance.unwrap_or_else(|| PRIMARY.to_owned());
     save_with(&state, &headers, |saved| {
-        saved.with_form(&form, &state.defaults)
+        saved.with_form(&id, &form, &state.defaults)
     })
     .await
+}
+
+#[derive(Deserialize)]
+struct NewInstance {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    database_url: String,
+}
+
+async fn instance_add(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(new): Json<NewInstance>,
+) -> Response {
+    // Short, unique enough, and safe in a file name and in an address.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let id = format!("n{:x}", nanos & 0xffff_ffff_ffff);
+    save_with(&state, &headers, |saved| {
+        saved.with_instance(&id, &new.name, &new.database_url, &state.defaults)
+    })
+    .await
+}
+
+async fn instance_remove(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
+    headers: HeaderMap,
+) -> Response {
+    let id = q.instance.unwrap_or_default();
+    save_with(&state, &headers, |saved| saved.without_instance(&id)).await
 }
 
 #[derive(Deserialize)]
@@ -673,11 +871,15 @@ struct Decision {
 
 async fn accept(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
     headers: HeaderMap,
     Json(decision): Json<Decision>,
 ) -> Response {
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
     // Only something the latest scan actually found can be accepted.
     let known = state
+        .runtime(&instance.id)
+        .await
         .latest
         .read()
         .await
@@ -691,7 +893,7 @@ async fn accept(
         .map_or(0, |d| d.as_secs());
     save_with(&state, &headers, |saved| {
         let mut next = saved.clone();
-        next.accept(&decision.key, &decision.note, now);
+        next.accept(&instance.id, &decision.key, &decision.note, now);
         Ok(next)
     })
     .await
@@ -699,12 +901,14 @@ async fn accept(
 
 async fn unaccept(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
     headers: HeaderMap,
     Json(decision): Json<Decision>,
 ) -> Response {
+    let id = q.instance.unwrap_or_else(|| PRIMARY.to_owned());
     save_with(&state, &headers, |saved| {
         let mut next = saved.clone();
-        next.unaccept(&decision.key);
+        next.unaccept(&id, &decision.key);
         Ok(next)
     })
     .await
@@ -1038,7 +1242,11 @@ mod tests {
             n8n_url: "https://n8n.example.com".into(),
             ..Extras::default()
         };
-        extras.saved.accept(&door.key(), "público a propósito", 99);
+        extras.accepted.push(Accepted {
+            key: door.key(),
+            note: "público a propósito".into(),
+            at: 99,
+        });
         let after = compose_report(Lang::Es, Some(scan), None, None, &extras);
 
         assert_eq!(after.totals.important, 0);

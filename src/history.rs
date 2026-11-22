@@ -239,15 +239,26 @@ pub struct WorkflowView {
 #[derive(Debug, Clone)]
 pub struct Store {
     dir: PathBuf,
+    name: String,
 }
 
 impl Store {
-    pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+    /// The history of one instance. The first instance keeps the plain file
+    /// name it had before nbuddyn could watch more than one n8n.
+    pub fn new(dir: impl Into<PathBuf>, instance: &str) -> Self {
+        let name = if instance == crate::settings::PRIMARY {
+            FILE.to_owned()
+        } else {
+            format!("history-{instance}.json")
+        };
+        Self {
+            dir: dir.into(),
+            name,
+        }
     }
 
     fn file(&self) -> PathBuf {
-        self.dir.join(FILE)
+        self.dir.join(&self.name)
     }
 
     /// Reads the saved history, or starts an empty one when there is none. A
@@ -262,7 +273,7 @@ impl Store {
         match serde_json::from_str(&text) {
             Ok(history) => Ok(history),
             Err(e) => {
-                let aside = self.dir.join("history.unreadable.json");
+                let aside = self.dir.join(format!("{}.unreadable", self.name));
                 std::fs::rename(&file, &aside).map_err(|rename| {
                     format!(
                         "{} is not valid ({e}) and could not be set aside: {rename}",
@@ -483,7 +494,7 @@ mod tests {
     fn history_survives_a_restart_and_a_broken_file_is_kept_aside() {
         let dir = std::env::temp_dir().join(format!("nbuddyn-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let store = Store::new(&dir);
+        let store = Store::new(&dir, crate::settings::PRIMARY);
         assert_eq!(store.load().unwrap(), History::default());
 
         let mut history = History::default();
@@ -501,7 +512,7 @@ mod tests {
 
         std::fs::write(dir.join(FILE), "{ not json").unwrap();
         assert_eq!(store.load().unwrap(), History::default());
-        assert!(dir.join("history.unreadable.json").exists());
+        assert!(dir.join("history.json.unreadable").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
