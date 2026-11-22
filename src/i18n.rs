@@ -608,6 +608,8 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub show_password: &'static str,
+    pub hide_password: &'static str,
     pub first_scan_title: &'static str,
     pub first_scan_text: &'static str,
     pub scan_failed_title: &'static str,
@@ -1217,6 +1219,16 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        show_password: lang.pick(
+            "Show password",
+            "Mostrar la clave",
+            "Mostrar a senha",
+        ),
+        hide_password: lang.pick(
+            "Hide password",
+            "Ocultar la clave",
+            "Ocultar a senha",
         ),
         first_scan_title: lang.pick(
             "Powering up the instruments",

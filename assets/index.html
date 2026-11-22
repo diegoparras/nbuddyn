@@ -252,6 +252,12 @@
   .me { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--soft); white-space: nowrap; }
   .me b { font-weight: 600; color: var(--ink); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 
+  .secret { position: relative; display: flex; min-width: 0; }
+  .secret input { flex: 1 1 auto; width: 100%; padding-right: 42px; }
+  .secret button { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 38px; height: 34px; display: grid; place-items: center; background: none; border: 0; color: var(--muted); border-radius: 4px; }
+  .secret button:hover { color: var(--ink); }
+  .addform .secret { flex: 1 1 180px; }
+
   /* Login */
   .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
   .login form { width: min(380px, 100%); display: grid; gap: 14px; padding: 32px 28px; }
@@ -353,7 +359,9 @@
     chevron: "M6 3.5L10.5 8 6 12.5",
     search: "M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10zm3.5-1.5l3 3",
     x: "M4 4l8 8M12 4l-8 8",
-    exit: "M6.5 13.5H3.5v-11h3M10 5l3 3-3 3M13 8H6.5"
+    exit: "M6.5 13.5H3.5v-11h3M10 5l3 3-3 3M13 8H6.5",
+    eye: "M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    eyeoff: "M2.5 2.5l11 11M6.6 4A6.6 6.6 0 0 1 8 3.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.9 2.4M10.9 11.7A6.3 6.3 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a11 11 0 0 1 2.7-3.1M6.6 6.6a2 2 0 0 0 2.8 2.8"
   };
 
   function stored(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -447,11 +455,26 @@
       h("div", null, h("h1", null, failed ? ui.scan_failed_title : ui.first_scan_title), h("p", null, failed ? ui.scan_failed_text : ui.first_scan_text)));
   }
 
+  /* A password box with an eye to look at what was typed. */
+  function secret(input, show, hide) {
+    var eye = h("button", { type: "button", title: show, "aria-label": show, "aria-pressed": "false" }, icon("eye"));
+    eye.addEventListener("click", function () {
+      var visible = input.type === "password";
+      input.type = visible ? "text" : "password";
+      fill(eye, icon(visible ? "eyeoff" : "eye"));
+      eye.title = visible ? hide : show;
+      eye.setAttribute("aria-label", eye.title);
+      eye.setAttribute("aria-pressed", String(visible));
+      input.focus();
+    });
+    return h("span", "secret", input, eye);
+  }
+
   /* ---------- Login ---------- */
   var LOGIN = {
-    en: { tag: "Flight report for n8n", user: "User name", password: "Password", enter: "Sign in", wrong: "Wrong user name or password.", wait: "Too many tries. Try again in {n} s.", down: "nbuddyn is not answering. Try again in a moment." },
-    es: { tag: "Informe de vuelo de n8n", user: "Usuario", password: "Clave", enter: "Entrar", wrong: "Usuario o clave incorrectos.", wait: "Demasiados intentos. Probá de nuevo en {n} s.", down: "nbuddyn no responde. Probá de nuevo en un momento." },
-    pt: { tag: "Relatório de voo do n8n", user: "Usuário", password: "Senha", enter: "Entrar", wrong: "Usuário ou senha incorretos.", wait: "Muitas tentativas. Tente de novo em {n} s.", down: "O nbuddyn não responde. Tente de novo em um momento." }
+    en: { tag: "Flight report for n8n", user: "User name", password: "Password", enter: "Sign in", show: "Show password", hide: "Hide password", wrong: "Wrong user name or password.", wait: "Too many tries. Try again in {n} s.", down: "nbuddyn is not answering. Try again in a moment." },
+    es: { tag: "Informe de vuelo de n8n", user: "Usuario", password: "Clave", enter: "Entrar", show: "Mostrar la clave", hide: "Ocultar la clave", wrong: "Usuario o clave incorrectos.", wait: "Demasiados intentos. Probá de nuevo en {n} s.", down: "nbuddyn no responde. Probá de nuevo en un momento." },
+    pt: { tag: "Relatório de voo do n8n", user: "Usuário", password: "Senha", enter: "Entrar", show: "Mostrar a senha", hide: "Ocultar a senha", wrong: "Usuário ou senha incorretos.", wait: "Muitas tentativas. Tente de novo em {n} s.", down: "O nbuddyn não responde. Tente de novo em um momento." }
   };
   function showLogin() {
     var box = $("login");
@@ -468,7 +491,7 @@
     var brand = document.querySelector(".top .brand").cloneNode(true);
     brand.removeAttribute("href");
     var form = h("form", "card", brand, h("div", "eyebrow", t.tag),
-      h("label", null, t.user, user), h("label", null, t.password, password), enter, problem, langs);
+      h("label", null, t.user, user), h("label", null, t.password, secret(password, t.show, t.hide)), enter, problem, langs);
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
       enter.disabled = true;
@@ -488,6 +511,7 @@
           void form.offsetWidth;
           form.classList.add("shake");
           password.value = "";
+          password.type = "password";
           password.focus();
         })
         .catch(function () { enter.disabled = false; problem.textContent = t.down; });
@@ -1136,7 +1160,7 @@
         var role = h("select", { "aria-label": ui.users });
         [["viewer", ui.role_viewer], ["admin", ui.role_admin]].forEach(function (o) { role.appendChild(h("option", { value: o[0], text: o[1] })); });
         var add = h("button", { type: "submit", class: "btn", text: ui.add });
-        var form = h("form", "addform", name, password, role, add);
+        var form = h("form", "addform", name, secret(password, ui.show_password, ui.hide_password), role, add);
         [name, password].forEach(function (input) { input.addEventListener("input", function () { state.busy = true; }); });
         form.addEventListener("submit", function (ev) {
           ev.preventDefault();
