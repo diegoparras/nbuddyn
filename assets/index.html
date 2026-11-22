@@ -301,7 +301,11 @@
     .top, .fleet, .filters, .login, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
     .view { margin-bottom: 28px; }
     .printhead { display: block; font: 600 16px var(--mono); margin-bottom: 16px; }
-    .gcard, figure, .tile, .todo li { break-inside: avoid; }
+    .gcard, figure, .tile, .todo li, tr { break-inside: avoid; }
+    .view > header, .card > h2, .day { break-after: avoid; }
+    #view-findings, #view-history { break-before: page; }
+    .ghead .chev { display: none; }
+    .view { animation: none; }
     a { text-decoration: none; }
     main { padding-top: 0; }
   }
@@ -340,6 +344,7 @@
   <section class="view" id="view-cluster" hidden></section>
   <section class="view" id="view-activity" hidden></section>
   <section class="view" id="view-history" hidden></section>
+  <section class="view" id="view-credentials" hidden></section>
   <section class="view" id="view-settings" hidden></section>
   <footer id="footer"></footer>
 </main>
@@ -349,7 +354,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var SVG = "http://www.w3.org/2000/svg";
-  var VIEWS = ["overview", "findings", "cluster", "activity", "history", "settings"];
+  var VIEWS = ["overview", "findings", "cluster", "activity", "history", "credentials", "settings"];
   var SEVERITIES = ["high", "medium", "low", "info"];
   var SERIES = { ok: "#4A8FE8", failed: "#E85D3F", canceled: "#6B7A8C" };
   var RANGES = [7, 30, 90];
@@ -371,7 +376,7 @@
     lang: stored("nbuddyn.lang") || (navigator.language || "en").slice(0, 2),
     instance: stored("nbuddyn.instance") || "",
     view: "overview",
-    report: null, history: null, week: null, activity: null, activityKind: "all",
+    report: null, history: null, week: null, activity: null, activityKind: "all", credentials: null, credQuery: "",
     range: Number(stored("nbuddyn.range")) || 30,
     filter: { severity: "all", query: "", light: null },
     open: {}, expanded: {},
@@ -426,7 +431,7 @@
     store("nbuddyn.instance", id);
     state.open = {}; state.expanded = {};
     state.filter = { severity: "all", query: "", light: null };
-    state.history = null; state.week = null; state.activity = null;
+    state.history = null; state.week = null; state.activity = null; state.credentials = null; state.credQuery = "";
     return load().then(function () { if (state.view === "settings") renderSettings(); });
   }
   function get(path) {
@@ -563,6 +568,12 @@
       return f.format(-Math.round(ago / 86400), "day");
     } catch (e) { return new Date(seconds * 1000).toLocaleString(state.lang); }
   }
+  function duration(ms) {
+    if (ms < 1000) return Math.round(ms) + " ms";
+    if (ms < 60000) return (ms / 1000).toLocaleString(state.lang, { maximumFractionDigits: 1 }) + " s";
+    var minutes = Math.floor(ms / 60000), seconds = Math.round((ms % 60000) / 1000);
+    return minutes + " min" + (seconds ? " " + seconds + " s" : "");
+  }
   function runsOf(c) { return (c.ok || 0) + (c.failed || 0) + (c.canceled || 0); }
   function sevLabel(ui, sev) { return { high: ui.urgent, medium: ui.important, low: ui.minor, info: ui.info }[sev]; }
 
@@ -602,7 +613,7 @@
     var open = r.available ? r.totals.urgent + r.totals.important + r.totals.minor + r.totals.info : 0;
     var nav = $("nav");
     nav.replaceChildren();
-    [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["activity", ui.nav_activity], ["history", ui.history], ["settings", ui.settings]].forEach(function (t) {
+    [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["activity", ui.nav_activity], ["history", ui.history], ["credentials", ui.nav_credentials], ["settings", ui.settings]].forEach(function (t) {
       if (t[0] === "settings" && state.me && state.me.role !== "admin") return;
       var link = h("a", { href: "#/" + t[0], text: t[1] });
       if (t[0] === state.view) link.setAttribute("aria-current", "page");
@@ -1113,10 +1124,17 @@
     var workflows = h("div", "card", h("h2", null, ui.inv_workflows));
     if (!hist.workflows.length) workflows.appendChild(h("div", "empty", h("p", null, ui.history_empty)));
     else {
-      var t = tableOf([[ui.col_workflow], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"], [ui.col_last, "num optional"]],
+      var timed = hist.workflows.some(function (w) { return w.timed; });
+      var heads = [[ui.col_workflow], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"]];
+      if (timed) heads.push([ui.col_avg, "num optional"], [ui.col_slowest, "num optional"]);
+      heads.push([ui.col_last, "num optional"]);
+      var t = tableOf(heads,
         hist.workflows.map(function (w) {
           var runs = runsOf(w);
-          return [[whereOf({ workflow: w.name, path: w.path }, ui)], [num(runs)], [num(w.failed), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
+          var row = [[whereOf({ workflow: w.name, path: w.path }, ui)], [num(runs)], [num(w.failed), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)]];
+          if (timed) row.push([w.timed ? duration(w.ms / w.timed) : "–"], [w.timed ? duration(w.slowest) : "–"]);
+          row.push([dayLabel(w.last_day)]);
+          return row;
         }));
       workflows.appendChild(t);
       var rows = t.querySelectorAll("tbody tr");
@@ -1129,9 +1147,42 @@
         workflows.appendChild(more);
       }
     }
-    fill(view, h("header", null, title, ranges), tiles, charts, h("div", { style: "height:16px" }), workflows,
+    var csv = h("a", { class: "btn small", href: at("api/history.csv?days=" + state.range), download: "nbuddyn-history.csv" }, icon("download"), ui.download_csv);
+    fill(view, h("header", null, title, csv, ranges), tiles, charts, h("div", { style: "height:16px" }), workflows,
       h("p", "hint", (hist.since ? ui.history_since + " " + dayLabel(hist.since, true) + ". " : "") + ui.history_note));
     if (hist.days.length && !view.hidden) { drawRuns(runsChart, hist, ui); drawScore(scoreChart, hist, ui); }
+  }
+
+  /* ---------- Credentials ---------- */
+  function renderCredentials() {
+    var r = state.report, ui = r.ui, data = state.credentials, view = $("view-credentials");
+    var head = h("header", null, h("h1", null, ui.nav_credentials));
+    if (!data) return fill(view, head, skeleton(6));
+    if (!data.available) return fill(view, head, waiting(ui));
+    var query = state.credQuery.trim().toLowerCase();
+    var input = h("input", { type: "search", value: state.credQuery, placeholder: ui.cred_search, "aria-label": ui.cred_search });
+    input.addEventListener("input", function () {
+      state.credQuery = input.value;
+      renderCredentials();
+      var again = view.querySelector(".searchbox input");
+      again.focus();
+      again.setSelectionRange(again.value.length, again.value.length);
+    });
+    var list = data.credentials.filter(function (c) {
+      return !query || matches([c.name, c.kind].concat(c.workflows.map(function (w) { return w.name; })).join(" "), query);
+    });
+    var body;
+    if (!data.credentials.length) body = h("div", "card empty", h("p", null, ui.no_credentials));
+    else if (!list.length) body = h("div", "card empty", h("p", null, ui.no_results));
+    else body = h("div", "card", tableOf([[ui.col_credential], [ui.col_kind, "optional"], [ui.col_used_by]], list.map(function (c) {
+      var users = h("div");
+      if (!c.workflows.length) users.appendChild(h("span", "off", ui.unused));
+      c.workflows.forEach(function (w) {
+        users.appendChild(h("div", null, whereOf({ workflow: w.name, path: w.path }, ui), w.active ? null : h("span", { class: "tag", style: "margin-left:8px", text: ui.inactive })));
+      });
+      return [[h("b", { style: "font-weight:600", text: c.name })], [h("span", "mono", c.kind)], [users]];
+    })));
+    fill(view, head, h("div", "filters", h("label", "searchbox", icon("search"), input)), body, h("p", "hint", ui.cred_help));
   }
 
   /* ---------- Settings ---------- */
@@ -1287,6 +1338,8 @@
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });
+      form.appendChild(h("div", "card", h("h2", null, ui.backup),
+        h("div", { class: "field" }, h("a", { class: "btn", href: at("api/export/history"), download: "" }, icon("download"), ui.download_backup), h("div", "help", ui.backup_help))));
       if (state.me && !state.me.open) { form.appendChild(usersCard(ui)); form.appendChild(auditCard(ui)); }
       form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.env_only + ". " + ui.read_only })));
       form.appendChild(h("div", "savebar", status, save));
@@ -1333,6 +1386,7 @@
     renderFindings();
     renderCluster();
     renderActivity();
+    renderCredentials();
     renderHistory();
   }
   function show() {
@@ -1355,6 +1409,12 @@
       if (state.report) renderActivity();
     }).catch(function (err) { console.error("nbuddyn", err); });
   }
+  function loadCredentials() {
+    return get(at("api/credentials")).then(function (c) {
+      state.credentials = c;
+      if (state.report) renderCredentials();
+    }).catch(function (err) { console.error("nbuddyn", err); });
+  }
   function loadHistory() {
     return get(at("api/history?days=" + state.range)).then(function (hist) {
       state.history = hist;
@@ -1370,6 +1430,7 @@
     return Promise.all([report, week]).then(function () {
       renderAll();
       loadActivity();
+      loadCredentials();
       return loadHistory();
     }).catch(function (err) { console.error("nbuddyn", err); });
   }

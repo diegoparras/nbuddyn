@@ -2,7 +2,7 @@
 //!
 //! It speaks the Model Context Protocol over plain HTTP: every request is one
 //! JSON-RPC message in a POST and gets one JSON answer. It keeps no session,
-//! offers five tools that only read what the page already shows, and is off
+//! offers six tools that only read what the page already shows, and is off
 //! unless a token is configured.
 
 use std::sync::Arc;
@@ -158,6 +158,18 @@ fn tools() -> Value {
             "annotations": read_only,
         },
         {
+            "name": "list_credentials",
+            "title": "n8n credentials",
+            "description": "Every credential in the n8n instance by name and type, never its \
+                secret, with the workflows that use it: what would break if it were rotated.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "instance": instance },
+                "additionalProperties": false,
+            },
+            "annotations": read_only,
+        },
+        {
             "name": "get_activity",
             "title": "n8n activity",
             "description": "What changed lately in the n8n instance, newest first: findings that \
@@ -233,6 +245,7 @@ async fn call(state: &AppState, params: &Value) -> Result<Value, (i64, String)> 
             let severity = args.get("severity").and_then(Value::as_str);
             findings(web::current_report(state, lang, instance).await, severity)
         }
+        "list_credentials" => web::current_credentials(state, instance).await,
         "get_activity" => {
             let days = args
                 .get("days")
@@ -305,7 +318,7 @@ mod tests {
     fn every_tool_is_declared_read_only() {
         let tools = tools();
         let tools = tools.as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
         for tool in tools {
             assert_eq!(
                 tool["annotations"]["readOnlyHint"], true,

@@ -46,6 +46,11 @@ pub struct Tally {
     pub day: String,
     pub outcome: Outcome,
     pub count: i64,
+    /// How many of them have a known duration, their total and the longest,
+    /// in milliseconds. All zero when nbuddyn may not read when they stopped.
+    pub timed: i64,
+    pub ms: i64,
+    pub slowest: i64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +61,14 @@ pub struct Counts {
     pub failed: i64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub canceled: i64,
+    /// Executions with a known duration, their total and the longest, in
+    /// milliseconds.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub timed: i64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ms: i64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub slowest: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -71,6 +84,9 @@ impl Counts {
         self.ok += other.ok;
         self.failed += other.failed;
         self.canceled += other.canceled;
+        self.timed += other.timed;
+        self.ms += other.ms;
+        self.slowest = self.slowest.max(other.slowest);
     }
 }
 
@@ -379,6 +395,9 @@ impl History {
                 Outcome::Failed => counts.failed += tally.count,
                 Outcome::Canceled => counts.canceled += tally.count,
             }
+            counts.timed += tally.timed;
+            counts.ms += tally.ms;
+            counts.slowest = counts.slowest.max(tally.slowest);
             if !tally.workflow_name.is_empty() {
                 self.names.insert(tally.workflow_id, tally.workflow_name);
             } else {
@@ -422,6 +441,25 @@ impl History {
         let today = delta.today.clone();
         self.record_runs(delta);
         self.record_score(&today, score, keep_days);
+    }
+
+    /// One row per day and workflow that ran, for the last `span` days,
+    /// oldest first.
+    pub fn rows(&self, span: u32) -> Vec<Row> {
+        let Some(today) = day_number(&self.today) else {
+            return Vec::new();
+        };
+        let first = day_name(today - i64::from(span.max(1)) + 1);
+        self.days
+            .range(first..)
+            .flat_map(|(day, stored)| {
+                stored.runs.iter().map(move |(id, counts)| Row {
+                    day: day.clone(),
+                    workflow: self.names.get(id).cloned().unwrap_or_else(|| id.clone()),
+                    counts: *counts,
+                })
+            })
+            .collect()
     }
 
     /// The last `span` days ending today, oldest first, with empty days filled in.
@@ -473,6 +511,14 @@ impl History {
     }
 }
 
+/// The executions of one workflow on one day.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    pub day: String,
+    pub workflow: String,
+    pub counts: Counts,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct View {
     /// The oldest day nbuddyn remembers.
@@ -515,14 +561,17 @@ impl Store {
     /// The history of one instance. The first instance keeps the plain file
     /// name it had before nbuddyn could watch more than one n8n.
     pub fn new(dir: impl Into<PathBuf>, instance: &str) -> Self {
-        let name = if instance == crate::settings::PRIMARY {
+        Self {
+            dir: dir.into(),
+            name: Self::file_name(instance),
+        }
+    }
+
+    pub fn file_name(instance: &str) -> String {
+        if instance == crate::settings::PRIMARY {
             FILE.to_owned()
         } else {
             format!("history-{instance}.json")
-        };
-        Self {
-            dir: dir.into(),
-            name,
         }
     }
 
@@ -623,6 +672,9 @@ mod tests {
             day: day.into(),
             outcome,
             count,
+            timed: 0,
+            ms: 0,
+            slowest: 0,
         }
     }
 
@@ -684,7 +736,7 @@ mod tests {
             Counts {
                 ok: 3,
                 failed: 2,
-                canceled: 0
+                ..Counts::default()
             }
         );
         assert_eq!(day.score.map(|s| s.last), Some(70));

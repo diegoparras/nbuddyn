@@ -63,6 +63,16 @@ per workflow, how many succeeded, failed or were canceled, plus the score of eac
 The page shows the last 7, 30 or 90 days. On its first scan nbuddyn counts whatever
 n8n still has, so the history does not start empty.
 
+With one more grant on Postgres, the history also keeps how long executions took, and the
+page shows each workflow's average and slowest run:
+
+```sql
+GRANT SELECT ("stoppedAt") ON execution_entity TO nbuddyn;
+```
+
+The history can be downloaded as a spreadsheet (CSV) from the History page, and as a
+backup file from Settings.
+
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
@@ -104,6 +114,11 @@ For Redis, `rediss://` instead of `redis://` encrypts and checks the certificate
 
 Certificates are checked against the public authorities. If your server uses a private
 one, as most managed databases do, give nbuddyn its certificate with `NBUDDYN_CA_FILE`.
+
+## Credentials
+
+**Credentials** lists every credential by name and type, never its secret, with the
+workflows that use it: what would break if it were rotated or deleted.
 
 ## What changed
 
@@ -156,8 +171,9 @@ gets worse (say, from important to urgent) comes back by itself.
 ## For AI assistants (MCP)
 
 Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
-assistant such as Claude can ask about your n8n in plain words. It offers five tools,
-all read-only: `list_instances`, `get_status`, `list_findings`, `get_activity` and `get_history`. They return what the page
+assistant such as Claude can ask about your n8n in plain words. It offers six tools,
+all read-only: `list_instances`, `get_status`, `list_findings`, `list_credentials`, `get_activity` and
+`get_history`. They return what the page
 shows and nothing else: no secrets, no execution data, and no way to change n8n.
 
 The endpoint is off without a token, and every request must carry it as

@@ -351,8 +351,46 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
         },
         cluster: snapshot.cluster.clone(),
         runners: snapshot.runners.clone(),
+        credentials: credential_map(snapshot),
         findings,
     }
+}
+
+/// Which workflows use each credential, most used first.
+fn credential_map(snapshot: &Snapshot) -> Vec<web::CredentialUse> {
+    let mut map: Vec<web::CredentialUse> = snapshot
+        .credentials
+        .iter()
+        .map(|credential| web::CredentialUse {
+            name: credential.name.clone(),
+            kind: credential.kind.clone(),
+            workflows: snapshot
+                .workflows
+                .iter()
+                .filter(|wf| !wf.archived)
+                .filter_map(|wf| {
+                    let nodes = wf
+                        .nodes
+                        .iter()
+                        .filter(|n| n.credential_ids.contains(&credential.id))
+                        .count();
+                    (nodes > 0).then(|| web::CredentialWorkflow {
+                        name: wf.name.clone(),
+                        active: wf.active,
+                        nodes,
+                        path: radar::workflow_path(&wf.id),
+                    })
+                })
+                .collect(),
+        })
+        .collect();
+    map.sort_by(|a, b| {
+        b.workflows
+            .len()
+            .cmp(&a.workflows.len())
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    map
 }
 
 async fn shutdown() {

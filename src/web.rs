@@ -30,6 +30,26 @@ pub struct Scan {
     pub findings: Vec<Finding>,
     pub cluster: Option<Cluster>,
     pub runners: Vec<RunnerProbe>,
+    pub credentials: Vec<CredentialUse>,
+}
+
+/// One credential and the workflows that would break without it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CredentialUse {
+    pub name: String,
+    /// n8n's type name, such as `httpHeaderAuth`.
+    pub kind: String,
+    pub workflows: Vec<CredentialWorkflow>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CredentialWorkflow {
+    pub name: String,
+    pub active: bool,
+    /// How many of its nodes use the credential.
+    pub nodes: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -125,6 +145,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/report", get(report))
         .route("/api/history", get(history_report))
         .route("/api/activity", get(activity))
+        .route("/api/credentials", get(credentials))
+        .route("/api/history.csv", get(history_csv))
+        .route("/api/export/history", get(history_export))
         .route("/api/settings", get(settings_view).post(settings_save))
         .route("/api/accept", post(accept))
         .route("/api/unaccept", post(unaccept))
@@ -313,6 +336,136 @@ pub async fn current_activity(
     instance: Option<&str>,
 ) -> serde_json::Value {
     serde_json::to_value(read_activity(state, lang, days, instance).await).unwrap_or_default()
+}
+
+#[derive(Serialize)]
+struct CredentialsReport {
+    available: bool,
+    credentials: Vec<CredentialUse>,
+}
+
+async fn read_credentials(state: &AppState, instance: Option<&str>) -> CredentialsReport {
+    let (_, instance) = state.pick(instance).await;
+    let runtime = state.runtime(&instance.id).await;
+    let latest = runtime.latest.read().await;
+    CredentialsReport {
+        available: latest.is_some(),
+        credentials: latest
+            .as_ref()
+            .map(|scan| scan.credentials.clone())
+            .unwrap_or_default(),
+    }
+}
+
+async fn credentials(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<Which>,
+) -> Json<CredentialsReport> {
+    Json(read_credentials(&state, q.instance.as_deref()).await)
+}
+
+/// The credentials as the page gets them, for the MCP tools.
+pub async fn current_credentials(state: &AppState, instance: Option<&str>) -> serde_json::Value {
+    serde_json::to_value(read_credentials(state, instance).await).unwrap_or_default()
+}
+
+/// One CSV field: quoted when it could be read as more than one, and never
+/// starting with a character a spreadsheet would run as a formula.
+fn csv_field(text: &str) -> String {
+    let safe = if text.starts_with(['=', '+', '-', '@']) {
+        format!("'{text}")
+    } else {
+        text.to_owned()
+    };
+    if safe.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", safe.replace('"', "\"\""))
+    } else {
+        safe
+    }
+}
+
+/// The history as a spreadsheet: one row per day and workflow.
+async fn history_csv(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<HistoryQuery>,
+) -> Response {
+    let span = q.days.unwrap_or(DEFAULT_SPAN).clamp(1, 3650);
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let history = state
+        .runtime(&instance.id)
+        .await
+        .history
+        .read()
+        .await
+        .clone();
+    let mut csv = String::from("day,workflow,succeeded,failed,canceled,average_ms,slowest_ms\n");
+    for row in history.iter().flat_map(|h| h.rows(span)) {
+        let average = if row.counts.timed > 0 {
+            (row.counts.ms / row.counts.timed).to_string()
+        } else {
+            String::new()
+        };
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{}\n",
+            row.day,
+            csv_field(&row.workflow),
+            row.counts.ok,
+            row.counts.failed,
+            row.counts.canceled,
+            average,
+            if row.counts.timed > 0 {
+                row.counts.slowest.to_string()
+            } else {
+                String::new()
+            },
+        ));
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"nbuddyn-history.csv\"",
+            ),
+        ],
+        csv,
+    )
+        .into_response()
+}
+
+/// Everything nbuddyn remembers about one instance, as it is on disk: a
+/// backup that can be put back in the data directory.
+async fn history_export(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    Query(q): Query<Which>,
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let history = state
+        .runtime(&instance.id)
+        .await
+        .history
+        .read()
+        .await
+        .clone();
+    let Some(history) = history else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let file = history::Store::file_name(&instance.id);
+    (
+        [
+            (header::CONTENT_TYPE, "application/json".to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{file}\""),
+            ),
+        ],
+        Json(&*history).into_response(),
+    )
+        .into_response()
 }
 
 /// Days shown when the page does not ask for a span.
@@ -1439,6 +1592,7 @@ mod tests {
             findings,
             cluster: None,
             runners: Vec::new(),
+            credentials: Vec::new(),
         }
     }
 

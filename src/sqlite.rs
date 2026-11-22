@@ -187,7 +187,14 @@ fn executions(conn: &Connection, cursor: i64, pending: &[i64]) -> rusqlite::Resu
     let finished = conn
         .prepare(&format!(
             r#"select coalesce(e."workflowId", ''), coalesce(max(w.name), ''),
-                      date(coalesce(e."startedAt", e."createdAt")), e.status, count(*)
+                      date(coalesce(e."startedAt", e."createdAt")), e.status, count(*),
+                      coalesce(sum(e."stoppedAt" >= e."startedAt"), 0),
+                      cast(coalesce(sum(case when e."stoppedAt" >= e."startedAt"
+                           then (julianday(e."stoppedAt") - julianday(e."startedAt")) * 86400000
+                           end), 0) as integer),
+                      cast(coalesce(max(case when e."stoppedAt" >= e."startedAt"
+                           then (julianday(e."stoppedAt") - julianday(e."startedAt")) * 86400000
+                           end), 0) as integer)
                from execution_entity e
                left join workflow_entity w on w.id = e."workflowId"
                where {range}
@@ -204,6 +211,9 @@ fn executions(conn: &Connection, cursor: i64, pending: &[i64]) -> rusqlite::Resu
                     day,
                     outcome,
                     count: r.get(4)?,
+                    timed: r.get(5)?,
+                    ms: r.get(6)?,
+                    slowest: r.get(7)?,
                 })
             }))
         })?

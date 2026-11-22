@@ -350,20 +350,41 @@ async fn executions(
     let cursor = cursor.min(upto);
 
     let pending: Vec<i64> = pending.to_vec();
+    // How long executions took needs one more column than the rest. Without
+    // the grant for it everything else still works.
+    let may_time: bool = client
+        .query_one(
+            r#"select has_column_privilege('execution_entity', 'stoppedAt', 'select')"#,
+            &[],
+        )
+        .await?
+        .get(0);
+    let durations = if may_time {
+        r#"count(*) filter (where e."stoppedAt" >= e."startedAt"),
+           coalesce(sum(extract(epoch from e."stoppedAt" - e."startedAt") * 1000)
+                    filter (where e."stoppedAt" >= e."startedAt"), 0)::bigint,
+           coalesce(max(extract(epoch from e."stoppedAt" - e."startedAt") * 1000)
+                    filter (where e."stoppedAt" >= e."startedAt"), 0)::bigint"#
+    } else {
+        "0::bigint, 0::bigint, 0::bigint"
+    };
     // Soft-deleted rows count too: n8n deletes what it is told not to keep,
     // and those executions still happened.
     let rows = client
         .query(
-            r#"select coalesce(e."workflowId", '')::text,
+            &format!(
+                r#"select coalesce(e."workflowId", '')::text,
                       coalesce(max(w.name), '')::text,
                       to_char(coalesce(e."startedAt", e."createdAt"), 'YYYY-MM-DD'),
                       e.status::text,
-                      count(*)
+                      count(*),
+                      {durations}
                from execution_entity e
                left join workflow_entity w on w.id = e."workflowId"
                where ((e.id > $1::bigint and e.id <= $2::bigint) or e.id = any($3::bigint[]))
                  and e.status in ('success', 'error', 'crashed', 'canceled')
-               group by 1, 3, 4"#,
+               group by 1, 3, 4"#
+            ),
             &[&cursor, &upto, &pending],
         )
         .await?;
@@ -377,6 +398,9 @@ async fn executions(
                 day: r.get::<_, Option<String>>(2)?,
                 outcome: Outcome::of_status(&status)?,
                 count: r.get(4),
+                timed: r.get(5),
+                ms: r.get(6),
+                slowest: r.get(7),
             })
         })
         .collect();
