@@ -163,6 +163,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         // The page itself holds no data; everything it shows needs a login.
         .route("/", get(index))
+        .route("/favicon.svg", get(favicon))
+        .route("/favicon.ico", get(favicon))
         .route("/api/me", get(me))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
@@ -196,7 +198,7 @@ static CONTENT_POLICY: std::sync::LazyLock<String> = std::sync::LazyLock::new(||
 });
 
 async fn security_headers(request: Request, next: Next) -> Response {
-    let is_api = request.uri().path() != "/";
+    let is_api = request.uri().path().starts_with("/api/") || request.uri().path() == "/mcp";
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     let mut set = |name: &'static str, value: &str| {
@@ -219,6 +221,16 @@ async fn security_headers(request: Request, next: Next) -> Response {
         set("cache-control", "no-store");
     }
     response
+}
+
+async fn favicon() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_str!("../assets/favicon.svg"),
+    )
 }
 
 async fn index() -> Html<&'static str> {
