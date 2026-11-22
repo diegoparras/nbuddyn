@@ -677,6 +677,7 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
     pub set_telegram_token: &'static str,
@@ -1322,6 +1323,11 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        env_tested: lang.pick(
+            "Tested with n8n",
+            "Probado con n8n",
+            "Testado com n8n",
         ),
         sec_alerts: lang.pick(
             "Alerts",

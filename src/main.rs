@@ -127,8 +127,79 @@ impl Config {
     }
 }
 
+/// `nbuddyn check`: reads n8n once, says what it found and what is missing,
+/// and exits. For trying a database address before running nbuddyn, and for
+/// the tests that run against every supported n8n version.
+async fn check() -> ExitCode {
+    let Some(url) = env::var("NBUDDYN_DATABASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    else {
+        eprintln!("nbuddyn check: NBUDDYN_DATABASE_URL is required");
+        return ExitCode::from(2);
+    };
+    println!("database: {}", db::label(&url));
+    let source = match db::connect(&url, None).await {
+        Ok(source) => source,
+        Err(reason) => {
+            eprintln!("cannot connect: {reason}");
+            return ExitCode::from(1);
+        }
+    };
+    match source.preflight().await {
+        Ok(preflight) if preflight.ok() => {
+            println!("schema: every table and column nbuddyn needs is readable")
+        }
+        Ok(preflight) => {
+            eprintln!("schema: {}", preflight.explain());
+            return ExitCode::from(1);
+        }
+        Err(reason) => {
+            eprintln!("schema: could not be inspected: {reason}");
+            return ExitCode::from(1);
+        }
+    }
+    let snapshot = match source.read_snapshot().await {
+        Ok(snapshot) => snapshot,
+        Err(reason) => {
+            eprintln!("read failed: {reason}");
+            return ExitCode::from(1);
+        }
+    };
+    let scan = evaluate(&snapshot);
+    println!(
+        "read: {} workflows ({} active), {} credentials, {} users",
+        scan.inventory.workflows,
+        scan.inventory.active,
+        scan.inventory.credentials,
+        scan.inventory.users
+    );
+    println!(
+        "findings: {} · score {}",
+        scan.findings.len(),
+        radar::score(&scan.findings)
+    );
+    match source.read_executions(0, &[]).await {
+        Ok(delta) => println!(
+            "executions: read up to #{} ({} groups finished, {} unfinished)",
+            delta.upto,
+            delta.finished.len(),
+            delta.unfinished.len()
+        ),
+        Err(reason) => {
+            eprintln!("executions could not be read: {reason}");
+            return ExitCode::from(1);
+        }
+    }
+    println!("ok: tested with n8n {}", db::TESTED_WITH);
+    ExitCode::SUCCESS
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    if env::args().nth(1).as_deref() == Some("check") {
+        return check().await;
+    }
     let config = match Config::from_env() {
         Ok(config) => config,
         Err(message) => {
@@ -335,7 +406,18 @@ async fn scan_once(
     history_days: u32,
 ) -> Result<(Scan, Vec<history::Event>), String> {
     let source = db::connect(&instance.database_url, instance.timezone.as_deref()).await?;
-    let mut snapshot = source.read_snapshot().await?;
+    let mut snapshot = match source.read_snapshot().await {
+        Ok(snapshot) => snapshot,
+        // A failed read gets a second look that says why in plain words: a
+        // missing grant with the SQL to fix it, or a version nbuddyn does
+        // not know.
+        Err(reason) => {
+            return Err(match source.preflight().await {
+                Ok(preflight) if !preflight.ok() => preflight.explain(),
+                _ => reason,
+            })
+        }
+    };
 
     // The database is the report; Redis adds the cluster to it. A Redis that
     // cannot be read is reported without losing the rest.

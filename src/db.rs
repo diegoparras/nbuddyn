@@ -89,6 +89,147 @@ impl Source {
     }
 }
 
+/// The tables and columns nbuddyn cannot work without.
+pub const REQUIRED: &[(&str, &[&str])] = &[
+    (
+        "workflow_entity",
+        &["id", "name", "active", "isArchived", "nodes", "settings"],
+    ),
+    ("credentials_entity", &["id", "name", "type"]),
+    (
+        "execution_entity",
+        &[
+            "id",
+            "workflowId",
+            "status",
+            "startedAt",
+            "createdAt",
+            "deletedAt",
+        ],
+    ),
+    ("user", &["disabled", "mfaEnabled"]),
+];
+
+/// The n8n versions nbuddyn is tested against on every change.
+pub const TESTED_WITH: &str = "1.123, 2.48, 3.3";
+
+/// What stands between nbuddyn and the columns it needs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Preflight {
+    /// Columns that do not exist: `(table, column)`.
+    pub missing: Vec<(String, String)>,
+    /// Columns that exist but this database user may not read.
+    pub forbidden: Vec<(String, String)>,
+    /// The database user nbuddyn connects as, for the grants.
+    pub user: String,
+}
+
+impl Preflight {
+    pub fn ok(&self) -> bool {
+        self.missing.is_empty() && self.forbidden.is_empty()
+    }
+
+    /// What is wrong and what to do about it, in a form a person can act on.
+    pub fn explain(&self) -> String {
+        let list = |columns: &[(String, String)]| {
+            columns
+                .iter()
+                .map(|(table, column)| format!("{table}.{column}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut text = String::new();
+        if !self.missing.is_empty() {
+            text.push_str(&format!(
+                "this n8n's database has no {}. nbuddyn is tested with n8n {TESTED_WITH}; \
+                 this version may be older or newer than it supports.",
+                list(&self.missing)
+            ));
+        }
+        if !self.forbidden.is_empty() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(&format!(
+                "the database user {} may not read {}. Run in n8n's Postgres:",
+                self.user,
+                list(&self.forbidden)
+            ));
+            for (table, _) in REQUIRED {
+                let columns: Vec<String> = self
+                    .forbidden
+                    .iter()
+                    .filter(|(t, _)| t == table)
+                    .map(|(_, c)| format!("\"{c}\""))
+                    .collect();
+                if !columns.is_empty() {
+                    text.push_str(&format!(
+                        " GRANT SELECT ({}) ON \"{table}\" TO {};",
+                        columns.join(", "),
+                        self.user
+                    ));
+                }
+            }
+        }
+        text
+    }
+}
+
+impl Source {
+    /// Looks at what the database has and what this user may read, without
+    /// reading any of it.
+    pub async fn preflight(&self) -> Result<Preflight, String> {
+        match self {
+            Source::Postgres(client) => pg_preflight(client).await.map_err(|e| describe(&e)),
+            Source::Sqlite(path) => {
+                let path = path.clone();
+                blocking(move || sqlite::preflight(&path)).await
+            }
+        }
+    }
+}
+
+async fn pg_preflight(client: &Client) -> Result<Preflight, DbError> {
+    let tables: Vec<&str> = REQUIRED.iter().map(|(table, _)| *table).collect();
+    let rows = client
+        .query(
+            "select c.relname::text, a.attname::text,
+                    has_column_privilege(c.oid, a.attnum, 'select'), current_user::text
+             from pg_class c
+             join pg_namespace n on n.oid = c.relnamespace
+             join pg_attribute a on a.attrelid = c.oid
+             where n.nspname = any(current_schemas(false))
+               and c.relname = any($1) and a.attnum > 0 and not a.attisdropped",
+            &[&tables],
+        )
+        .await?;
+    let user = match rows.first() {
+        Some(row) => row.get(3),
+        None => client
+            .query_one("select current_user::text", &[])
+            .await?
+            .get(0),
+    };
+    let mut preflight = Preflight {
+        user,
+        ..Preflight::default()
+    };
+    for (table, columns) in REQUIRED {
+        for column in *columns {
+            let found = rows
+                .iter()
+                .find(|r| r.get::<_, String>(0) == *table && r.get::<_, String>(1) == *column);
+            let place = ((*table).to_owned(), (*column).to_owned());
+            match found {
+                None => preflight.missing.push(place),
+                Some(row) if !row.get::<_, bool>(2) => preflight.forbidden.push(place),
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(preflight)
+}
+
 /// SQLite reads block, so they run off the async threads.
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,

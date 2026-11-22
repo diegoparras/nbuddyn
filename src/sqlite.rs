@@ -37,6 +37,31 @@ fn text(error: rusqlite::Error) -> String {
     error.to_string()
 }
 
+/// Which of the columns nbuddyn needs this file does not have. A file can
+/// always be read whole, so nothing is ever forbidden here.
+pub fn preflight(path: &Path) -> Result<crate::db::Preflight, String> {
+    let conn = open(path)?;
+    let mut preflight = crate::db::Preflight::default();
+    for (table, columns) in crate::db::REQUIRED {
+        let present: Vec<String> = conn
+            .prepare("select name from pragma_table_info(?1)")
+            .and_then(|mut query| {
+                query
+                    .query_map([table], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()
+            })
+            .map_err(text)?;
+        for column in *columns {
+            if !present.iter().any(|name| name == column) {
+                preflight
+                    .missing
+                    .push(((*table).to_owned(), (*column).to_owned()));
+            }
+        }
+    }
+    Ok(preflight)
+}
+
 pub fn read_snapshot(path: &Path) -> Result<Snapshot, String> {
     let conn = open(path)?;
     snapshot(&conn).map_err(text)

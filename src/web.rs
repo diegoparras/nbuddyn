@@ -1083,6 +1083,8 @@ struct SettingsView {
     /// `data`. Absent when nothing can be stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     secrets_key: Option<&'static str>,
+    /// The n8n versions nbuddyn is tested against.
+    tested_with: &'static str,
     version: &'static str,
 }
 
@@ -1120,6 +1122,7 @@ async fn read_settings(state: &AppState, q: Which) -> SettingsView {
             crate::vault::KeySource::Environment => "environment",
             crate::vault::KeySource::DataDirectory => "data",
         }),
+        tested_with: crate::db::TESTED_WITH,
         version: env!("CARGO_PKG_VERSION"),
     }
 }

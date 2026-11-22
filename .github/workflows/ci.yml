@@ -22,11 +22,66 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 
+  # nbuddyn reads n8n's own database, which n8n may change between versions.
+  # This starts each supported n8n for real, lets it build its database, and
+  # has nbuddyn read it.
+  compat:
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        n8n: ["1.123.100", "2.48.7", "3.3.0"]
+        database: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: n8n
+          POSTGRES_PASSWORD: n8n
+          POSTGRES_DB: n8n
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U n8n" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - name: Start n8n ${{ matrix.n8n }} on ${{ matrix.database }}
+        run: |
+          mkdir -p n8ndata && chmod 777 n8ndata
+          if [ "${{ matrix.database }}" = sqlite ]; then
+            docker run -d --name n8n -p 5678:5678 \
+              -v "$PWD/n8ndata:/home/node/.n8n" "n8nio/n8n:${{ matrix.n8n }}"
+          else
+            docker run -d --name n8n --network host \
+              -e DB_TYPE=postgresdb -e DB_POSTGRESDB_HOST=localhost \
+              -e DB_POSTGRESDB_USER=n8n -e DB_POSTGRESDB_PASSWORD=n8n \
+              -e DB_POSTGRESDB_DATABASE=n8n "n8nio/n8n:${{ matrix.n8n }}"
+          fi
+          for attempt in $(seq 1 60); do
+            if curl -fs http://localhost:5678/healthz > /dev/null; then echo "n8n is up"; exit 0; fi
+            sleep 3
+          done
+          docker logs n8n | tail -40
+          exit 1
+      - name: nbuddyn reads it
+        run: |
+          if [ "${{ matrix.database }}" = sqlite ]; then
+            sudo chmod -R a+rX n8ndata
+            export NBUDDYN_DATABASE_URL="sqlite:$PWD/n8ndata/database.sqlite"
+          else
+            export NBUDDYN_DATABASE_URL="postgres://n8n:n8n@localhost:5432/n8n"
+          fi
+          ./target/debug/nbuddyn check
+
   # One image per architecture, each built on a machine of that architecture,
   # so nothing is emulated.
   build:
     if: github.event_name != 'pull_request'
-    needs: test
+    needs: [test, compat]
     permissions:
       contents: read
       packages: write

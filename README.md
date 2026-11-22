@@ -290,6 +290,22 @@ http: keep nbuddyn on the same private network as them. `GET /healthz` answers w
 One page, two JSON endpoints (`/api/report?lang=es` and `/api/history?days=30`) and an MCP endpoint (`/mcp`). Tested against n8n 3.3 on
 Postgres, n8n 2.48 on SQLite, and Redis 8. 
 
+## Which n8n versions
+
+nbuddyn reads n8n's own database, and n8n does not promise to keep it the same. So
+every change to nbuddyn is tested against real n8n **1.123, 2.48 and 3.3**, each on SQLite
+and on Postgres: n8n is started, builds its database, and nbuddyn reads it.
+
+To try a database address before running nbuddyn, or after updating n8n:
+
+```bash
+docker run --rm -e NBUDDYN_DATABASE_URL=postgres://nbuddyn:password@n8n_postgres:5432/n8n \
+  ghcr.io/diegoparras/nbuddyn:latest check
+```
+
+It says what it could read. If a grant is missing it prints the exact `GRANT` to run; if
+the database is not one it knows, it says so instead of guessing.
+
 ## Development
 
 ```bash
