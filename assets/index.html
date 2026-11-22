@@ -188,6 +188,14 @@
   .items .note small { color: var(--muted); font-family: var(--mono); margin-left: 8px; }
   .acceptform { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 2px; }
   .acceptform input { flex: 1 1 220px; }
+  .tag.sure.certain { color: var(--soft); }
+  .tag.sure.likely { color: var(--amber); border-color: var(--amber); border-style: dashed; }
+  .advice.caveat b { color: var(--amber); }
+  .notchecked { margin-top: 22px; }
+  .notchecked > summary { cursor: pointer; padding: 14px 18px; font: 600 13px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); }
+  .notchecked .limits { margin: 0; padding: 0 18px 4px 38px; color: var(--soft); font-size: 14px; }
+  .notchecked .limits li { padding: 3px 0; }
+  .notchecked .hint { margin: 8px 18px 16px; }
   .morebar { padding: 8px 18px; border-top: 1px solid var(--line); }
   .linkbtn { background: none; border: 0; padding: 4px 0; color: var(--amber); font-size: 13px; font-weight: 500; }
   .linkbtn:hover { text-decoration: underline; }
@@ -293,7 +301,7 @@
     .grid2 { grid-template-columns: minmax(0, 1fr); }
     .ghead { flex-wrap: wrap; gap: 6px 10px; }
     .ghead .pill { order: 0; margin-right: auto; }
-    .ghead .tag { order: 1; } .ghead .chev { order: 2; }
+    .ghead .tag { order: 1; } .ghead .tag.sure { display: none; } .ghead .chev { order: 2; }
     .ghead h3 { order: 3; flex: 1 1 100%; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -693,7 +701,8 @@
         h("p", "lead", r.available ? r.lead : ""),
         r.available ? h("div", "actions",
           h("a", { class: "btn primary", href: "#/findings", text: ui.see_findings }),
-          h("a", { class: "btn", href: "#/history", text: ui.history })) : null));
+          h("a", { class: "btn", href: "#/history", text: ui.history })) : null,
+        r.available ? h("p", { class: "hint", style: "margin:14px 0 0", text: ui.not_checked_note }) : null));
     var fleet = null;
     if (r.instances.length > 1) {
       fleet = h("div", "fleet");
@@ -861,6 +870,7 @@
         card.appendChild(h("button", { type: "button", class: "ghead", "aria-expanded": String(isOpen), on: { click: function () { state.open[id] = !isOpen; renderFindings(); } } },
           h("span", "pill " + g.severity, sevLabel(ui, g.severity)),
           h("h3", null, g.title),
+          h("span", { class: "tag sure " + g.certainty, title: ui[g.certainty + "_help"], text: ui[g.certainty] }),
           h("span", "tag", items.length),
           h("span", "chev", icon("chevron"))));
         if (isOpen) {
@@ -876,7 +886,8 @@
             if (r.writable) li.appendChild(h("div", "act", acceptButton(it, ui, li)));
             list.appendChild(li);
           });
-          var gbody = h("div", "gbody", h("div", "advice", h("b", null, ui.what_to_do), h("span", null, g.advice)), list);
+          var gbody = h("div", "gbody", h("div", "advice", h("b", null, ui.what_to_do), h("span", null, g.advice)),
+            g.caveat ? h("div", "advice caveat", h("b", null, ui.caveat_label), h("span", null, g.caveat)) : null, list);
           if (items.length > 8) gbody.appendChild(h("div", "morebar", h("button", { type: "button", class: "linkbtn", text: all ? ui.show_less : ui.show_all + " (" + items.length + ")", on: { click: function () { state.expanded[id] = !all; renderFindings(); } } })));
           card.appendChild(gbody);
         }
@@ -884,6 +895,11 @@
       });
       if (!shown) body.appendChild(h("div", "card empty", h("p", null, filtering ? ui.no_results : ui.all_clear)));
       if (shown && !r.n8n_url) body.appendChild(h("p", "hint", ui.no_link_hint));
+      if (!filtering) {
+        var limits = h("ul", "limits");
+        ui.not_checked.forEach(function (line) { limits.appendChild(h("li", null, line)); });
+        body.appendChild(h("details", "card notchecked", h("summary", null, ui.not_checked_title), limits, h("p", "hint", ui.not_checked_note)));
+      }
     }
     fill(view, h("header", null, h("h1", null, ui.nav_findings)), chips, body);
   }

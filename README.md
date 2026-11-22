@@ -203,8 +203,17 @@ The endpoint is off without a token, and every request must carry it as
 claude mcp add --transport http nbuddyn https://your-nbuddyn-host/mcp --header "Authorization: Bearer your-token"
 ```
 
-Checks read the saved definition of each workflow. A webhook that validates its caller
-inside the workflow still shows as unauthenticated, because nbuddyn cannot see that logic.
+### How sure nbuddyn is
+
+Every finding is marked **Verified** or **To review**. Verified is a fact nbuddyn counted
+or measured: a runner that does not answer, a workflow that failed 40 times. To review is
+a sign it cannot be sure about from where it stands: a webhook without authentication may
+validate its caller inside the workflow, and text that looks like a key may be an
+example. Those findings say why they may be fine, and can be accepted.
+
+nbuddyn does **not** check what a workflow does with its data, who may use what inside
+n8n, the code of community nodes, how n8n is exposed to the network, or anything inside
+executions and credentials. The score sums up what it can see. It is a radar, not an audit.
 
 ## Run it
 

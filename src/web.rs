@@ -753,6 +753,11 @@ struct Group {
     count: usize,
     title: String,
     advice: &'static str,
+    /// `certain` for a fact nbuddyn counted or measured, `likely` for a sign
+    /// it cannot be sure about from where it stands.
+    certainty: &'static str,
+    /// Why it may not be a problem. Empty when `certain`.
+    caveat: &'static str,
     items: Vec<Item>,
 }
 
@@ -1039,6 +1044,12 @@ fn group(lang: Lang, findings: Vec<Finding>) -> Vec<Group> {
                 count: 0,
                 title: String::new(),
                 advice: i18n::advice(lang, check),
+                certainty: if i18n::caveat(lang, check).is_empty() {
+                    "certain"
+                } else {
+                    "likely"
+                },
+                caveat: i18n::caveat(lang, check),
                 items: vec![item],
             }),
         }

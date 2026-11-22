@@ -129,6 +129,75 @@ pub fn alert_test(lang: Lang) -> &'static str {
     )
 }
 
+/// Why a finding of this check may not be a problem. Empty for checks that
+/// report facts: something nbuddyn counted or could not reach.
+pub fn caveat(lang: Lang, check: &str) -> &'static str {
+    match check {
+        "open_ai_entry" | "public_entry_no_auth" => lang.pick(
+            "nbuddyn sees the trigger's setting, not what happens after it. If the workflow checks who is calling in its first nodes, or a proxy in front of n8n does, this is fine: accept it.",
+            "nbuddyn ve la configuración del disparador, no lo que pasa después. Si el workflow valida a quien llama en sus primeros nodos, o lo hace un proxy delante de n8n, está bien: aceptalo.",
+            "O nbuddyn vê a configuração do gatilho, não o que acontece depois. Se o workflow valida quem chama nos primeiros nós, ou um proxy na frente do n8n faz isso, está tudo bem: aceite.",
+        ),
+        "hardcoded_secret" => lang.pick(
+            "Found by its shape: text that looks like a key. It can be an example, a public identifier or a test value.",
+            "Se detecta por la forma: un texto que parece una clave. Puede ser un ejemplo, un identificador público o un valor de prueba.",
+            "Detectado pelo formato: um texto que parece uma chave. Pode ser um exemplo, um identificador público ou um valor de teste.",
+        ),
+        "plaintext_http" => lang.pick(
+            "nbuddyn guesses which hosts are internal by their name. A host on your private network with a public-looking name shows up here.",
+            "nbuddyn adivina qué hosts son internos por su nombre. Un host de tu red privada con nombre que parece público aparece acá.",
+            "O nbuddyn adivinha quais hosts são internos pelo nome. Um host da sua rede privada com nome que parece público aparece aqui.",
+        ),
+        "env_access" | "command_execution" => lang.pick(
+            "Found by searching the node's text. A mention inside a comment or a string counts too.",
+            "Se detecta buscando en el texto del nodo. Una mención dentro de un comentario o de un texto también cuenta.",
+            "Detectado buscando no texto do nó. Uma menção dentro de um comentário ou de um texto também conta.",
+        ),
+        "unused_credential" => lang.pick(
+            "Credentials used only by n8n itself, or by workflows that are archived, are listed too.",
+            "También aparecen las credenciales que usa solo el propio n8n, o workflows archivados.",
+            "Também aparecem as credenciais usadas só pelo próprio n8n, ou por workflows arquivados.",
+        ),
+        "stale_workflow" => lang.pick(
+            "A workflow that only runs when something happens outside can go quiet without being broken.",
+            "Un workflow que solo corre cuando pasa algo afuera puede quedarse quieto sin estar roto.",
+            "Um workflow que só roda quando algo acontece fora pode ficar parado sem estar quebrado.",
+        ),
+        _ => "",
+    }
+}
+
+/// What nbuddyn does not look at, so a good score is not read as more than it is.
+pub fn not_checked(lang: Lang) -> [&'static str; 5] {
+    [
+        lang.pick(
+            "What a workflow does with its data: its logic, its expressions, what it sends where.",
+            "Qué hace un workflow con sus datos: su lógica, sus expresiones, qué manda adónde.",
+            "O que um workflow faz com os dados: a lógica, as expressões, o que envia para onde.",
+        ),
+        lang.pick(
+            "Who may see or use each workflow and credential inside n8n.",
+            "Quién puede ver o usar cada workflow y cada credencial dentro de n8n.",
+            "Quem pode ver ou usar cada workflow e credencial dentro do n8n.",
+        ),
+        lang.pick(
+            "The code of community nodes, and whether n8n itself is up to date.",
+            "El código de los nodos de la comunidad, y si el propio n8n está actualizado.",
+            "O código dos nós da comunidade, e se o próprio n8n está atualizado.",
+        ),
+        lang.pick(
+            "How n8n is exposed: its proxy, its firewall, its own environment variables.",
+            "Cómo está expuesto n8n: su proxy, su firewall, sus propias variables de entorno.",
+            "Como o n8n está exposto: o proxy, o firewall, as próprias variáveis de ambiente.",
+        ),
+        lang.pick(
+            "The data inside executions and the secrets inside credentials. It never reads either.",
+            "Los datos de las ejecuciones y los secretos de las credenciales. Nunca lee ninguno de los dos.",
+            "Os dados das execuções e os segredos das credenciais. Nunca lê nenhum dos dois.",
+        ),
+    ]
+}
+
 /// What a change to a workflow is called.
 pub fn event_label(lang: Lang, kind: &str) -> &'static str {
     match kind {
@@ -677,6 +746,14 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub certain: &'static str,
+    pub likely: &'static str,
+    pub certain_help: &'static str,
+    pub likely_help: &'static str,
+    pub caveat_label: &'static str,
+    pub not_checked_title: &'static str,
+    pub not_checked_note: &'static str,
+    pub not_checked: [&'static str; 5],
     pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
@@ -1324,6 +1401,42 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Informe",
             "Relatório",
         ),
+        certain: lang.pick(
+            "Verified",
+            "Comprobado",
+            "Verificado",
+        ),
+        likely: lang.pick(
+            "To review",
+            "A revisar",
+            "A revisar",
+        ),
+        certain_help: lang.pick(
+            "A fact nbuddyn counted or measured.",
+            "Un hecho que nbuddyn contó o midió.",
+            "Um fato que o nbuddyn contou ou mediu.",
+        ),
+        likely_help: lang.pick(
+            "A sign worth a look. nbuddyn cannot be sure from where it stands.",
+            "Una señal que merece una mirada. nbuddyn no puede estar seguro desde donde mira.",
+            "Um sinal que merece uma olhada. O nbuddyn não pode ter certeza de onde olha.",
+        ),
+        caveat_label: lang.pick(
+            "It may be fine",
+            "Puede estar bien",
+            "Pode estar tudo bem",
+        ),
+        not_checked_title: lang.pick(
+            "What nbuddyn does not check",
+            "Qué no revisa nbuddyn",
+            "O que o nbuddyn não verifica",
+        ),
+        not_checked_note: lang.pick(
+            "The score sums up what nbuddyn can see. It is a radar, not an audit.",
+            "El puntaje resume lo que nbuddyn puede ver. Es un radar, no una auditoría.",
+            "A pontuação resume o que o nbuddyn consegue ver. É um radar, não uma auditoria.",
+        ),
+        not_checked: not_checked(lang),
         env_tested: lang.pick(
             "Tested with n8n",
             "Probado con n8n",
