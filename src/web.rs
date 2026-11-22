@@ -125,6 +125,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(index))
         .route("/api/report", get(report))
         .route("/api/history", get(history_report))
+        .route("/api/activity", get(activity))
         .route("/api/settings", get(settings_view).post(settings_save))
         .route("/api/accept", post(accept))
         .route("/api/unaccept", post(unaccept))
@@ -171,6 +172,91 @@ struct HistoryReport {
     error: Option<String>,
     #[serde(flatten)]
     view: history::View,
+}
+
+const DAY: u64 = 86_400;
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+#[derive(Serialize)]
+struct ActivityReport {
+    /// False when nbuddyn has no data directory, so it remembers nothing.
+    enabled: bool,
+    events: Vec<EventView>,
+}
+
+#[derive(Serialize)]
+struct EventView {
+    /// What happened, in words.
+    label: String,
+    #[serde(flatten)]
+    event: history::Event,
+}
+
+async fn read_activity(
+    state: &AppState,
+    lang: Option<Lang>,
+    days: Option<u32>,
+    instance: Option<&str>,
+) -> ActivityReport {
+    let span = u64::from(days.unwrap_or(7).clamp(1, MAX_SPAN));
+    let (effective, instance) = state.pick(instance).await;
+    let lang = lang.unwrap_or(effective.lang);
+    let history = state
+        .runtime(&instance.id)
+        .await
+        .history
+        .read()
+        .await
+        .clone();
+    let events = history
+        .iter()
+        .flat_map(|h| h.events_since(now().saturating_sub(span * DAY)))
+        .take(ACTIVITY_MAX)
+        .map(|event| EventView {
+            label: match &event.check {
+                Some(check) => i18n::group_title(lang, check, 1),
+                None => i18n::event_label(lang, &event.kind).to_owned(),
+            },
+            event: event.clone(),
+        })
+        .collect();
+    ActivityReport {
+        enabled: state.history_enabled,
+        events,
+    }
+}
+
+/// The most events one request returns.
+const ACTIVITY_MAX: usize = 500;
+
+#[derive(Deserialize)]
+struct ActivityQuery {
+    lang: Option<String>,
+    days: Option<u32>,
+    instance: Option<String>,
+}
+
+async fn activity(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ActivityQuery>,
+) -> Json<ActivityReport> {
+    let lang = q.lang.as_deref().map(Lang::parse);
+    Json(read_activity(&state, lang, q.days, q.instance.as_deref()).await)
+}
+
+/// The activity as the page gets it, for the MCP tools.
+pub async fn current_activity(
+    state: &AppState,
+    lang: Option<Lang>,
+    days: Option<u32>,
+    instance: Option<&str>,
+) -> serde_json::Value {
+    serde_json::to_value(read_activity(state, lang, days, instance).await).unwrap_or_default()
 }
 
 /// Days shown when the page does not ask for a span.
@@ -284,6 +370,8 @@ async fn read_report(state: &AppState, lang: Option<Lang>, instance: Option<&str
             id: instance.id.clone(),
             name: instance.name.clone(),
         },
+        history: runtime.history.read().await.clone(),
+        now: now(),
     };
     compose_report(
         lang.unwrap_or(effective.lang),
@@ -318,6 +406,9 @@ struct Report {
     #[serde(skip_serializing_if = "Option::is_none")]
     runners: Option<RunnersView>,
     groups: Vec<Group>,
+    /// What changed in the last day; absent without a history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    changes: Option<Changes>,
     /// Findings someone accepted: listed apart and left out of the score.
     accepted: Vec<AcceptedView>,
     /// Where n8n's editor is, for links. Empty when not configured.
@@ -456,6 +547,17 @@ struct Item {
     detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     active: Option<bool>,
+    /// When it first appeared, in seconds since 1970, if nbuddyn saw it appear.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since: Option<u64>,
+}
+
+/// What changed in the last day.
+#[derive(Clone, Copy, Default, Serialize)]
+struct Changes {
+    new: usize,
+    resolved: usize,
+    workflows: usize,
 }
 
 /// Scores below this are in the risk zone of the gauge.
@@ -465,7 +567,10 @@ const CAUTION_BELOW: u32 = 85;
 
 const LIGHTS: &[(&str, &[&str])] = &[
     ("doors", &["open_ai_entry", "public_entry_no_auth"]),
-    ("failures", &["repeated_failures", "stuck_execution"]),
+    (
+        "failures",
+        &["repeated_failures", "stuck_execution", "stale_workflow"],
+    ),
     ("silent", &["no_error_workflow"]),
     ("secrets", &["hardcoded_secret"]),
 ];
@@ -499,6 +604,9 @@ struct Extras {
     interval_seconds: u64,
     instance: InstanceRef,
     instances: Vec<InstanceSummary>,
+    /// For telling which findings are new and what changed lately.
+    history: Option<Arc<History>>,
+    now: u64,
 }
 
 /// The instance a report is about.
@@ -633,7 +741,22 @@ fn compose_report(
             .collect(),
     });
 
-    let groups = group(lang, scan.findings);
+    let mut groups = group(lang, scan.findings);
+    let mut changes = None;
+    if let Some(history) = &extras.history {
+        for item in groups.iter_mut().flat_map(|g| &mut g.items) {
+            item.since = history.since(&item.key);
+        }
+        let mut counted = Changes::default();
+        for event in history.events_since(extras.now.saturating_sub(DAY)) {
+            match event.kind.as_str() {
+                "finding_new" => counted.new += 1,
+                "finding_resolved" => counted.resolved += 1,
+                _ => counted.workflows += 1,
+            }
+        }
+        changes = Some(counted);
+    }
     let urgent_titles: Vec<String> = groups
         .iter()
         .filter(|g| g.severity == Severity::High)
@@ -656,6 +779,7 @@ fn compose_report(
         cluster_error,
         runners,
         groups,
+        changes,
         accepted,
         n8n_url: extras.n8n_url.clone(),
         writable: extras.writable,
@@ -703,6 +827,7 @@ impl Item {
             node: f.node,
             detail: f.detail,
             active: f.active,
+            since: None,
         }
     }
 }
@@ -888,9 +1013,7 @@ async fn accept(
     if !known {
         return Saving::refused(StatusCode::NOT_FOUND, Vec::new(), None);
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let now = now();
     save_with(&state, &headers, |saved| {
         let mut next = saved.clone();
         next.accept(&instance.id, &decision.key, &decision.note, now);

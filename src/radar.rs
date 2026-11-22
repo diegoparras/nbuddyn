@@ -270,6 +270,12 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
         });
     }
 
+    sort(&mut findings);
+    findings
+}
+
+/// Most severe first, then active workflows before inactive ones.
+pub fn sort(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         a.severity
             .cmp(&b.severity)
@@ -277,7 +283,29 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
             .then_with(|| a.check.cmp(b.check))
             .then_with(|| a.workflow.cmp(&b.workflow))
     });
-    findings
+}
+
+/// Active workflows that used to run most days and have gone quiet. `quiet`
+/// pairs a workflow id with the last day it ran, from nbuddyn's history.
+pub fn silent_workflows(workflows: &[Workflow], quiet: &[(String, String)]) -> Vec<Finding> {
+    quiet
+        .iter()
+        .filter_map(|(id, last_day)| {
+            let wf = workflows
+                .iter()
+                .find(|w| w.id == *id && w.active && !w.archived)?;
+            Some(Finding {
+                check: "stale_workflow",
+                severity: Severity::Medium,
+                workflow: Some(wf.name.clone()),
+                node: None,
+                detail: Some(last_day.clone()),
+                active: Some(true),
+                workflow_id: Some(wf.id.clone()),
+                subject: None,
+            })
+        })
+        .collect()
 }
 
 /// A workflow needs this many errors in the window to count as failing repeatedly.

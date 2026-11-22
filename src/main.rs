@@ -263,15 +263,20 @@ async fn scan_once(
     };
     *runtime.cluster_error.write().await = cluster_error;
     snapshot.runners = runners::probe_all(&instance.runners).await;
-    let scan = evaluate(&snapshot);
+    let mut scan = evaluate(&snapshot);
 
     if let Some(store) = store {
-        // The history keeps the score people see: without what they accepted.
-        let score = web::score_without_accepted(
-            &scan.findings,
-            state.saved.read().await.accepted_in(&instance.id),
-        );
-        let outcome = remember(&source, store, history, score, history_days).await;
+        let accepted = state.saved.read().await.accepted_in(&instance.id).to_vec();
+        let outcome = remember(
+            &source,
+            store,
+            history,
+            &snapshot,
+            &mut scan,
+            &accepted,
+            history_days,
+        )
+        .await;
         if let Err(reason) = &outcome {
             eprintln!("history not updated: {}: {reason}", instance.name);
         }
@@ -281,14 +286,19 @@ async fn scan_once(
     Ok(scan)
 }
 
-/// Counts the executions that finished since the last scan and saves the
-/// result. The copy in memory only moves forward once the file is written, so
-/// a scan that cannot save is repeated by the next one instead of being lost.
+/// Brings the history up to this scan and saves it: the executions that
+/// finished since the last one, the score, and what changed. The history also
+/// adds to the scan what only it can know: workflows that stopped running.
+///
+/// The copy in memory only moves forward once the file is written, so a scan
+/// that cannot save is repeated by the next one instead of being lost.
 async fn remember(
     source: &db::Source,
     store: &history::Store,
     history: &mut Option<History>,
-    score: u32,
+    snapshot: &Snapshot,
+    scan: &mut Scan,
+    accepted: &[settings::Accepted],
     keep_days: u32,
 ) -> Result<(), String> {
     let mut next = match history {
@@ -296,7 +306,23 @@ async fn remember(
         None => store.load()?,
     };
     let delta = source.read_executions(next.cursor, &next.pending).await?;
-    next.record(delta, score, keep_days);
+    let today = delta.today.clone();
+    next.record_runs(delta);
+
+    scan.findings
+        .extend(radar::silent_workflows(&snapshot.workflows, &next.quiet()));
+    radar::sort(&mut scan.findings);
+
+    // The history keeps the score people see: without what they accepted.
+    let score = web::score_without_accepted(&scan.findings, accepted);
+    next.record_score(&today, score, keep_days);
+    next.observe(
+        scan.generated_at,
+        &scan.findings,
+        &snapshot.workflows,
+        &snapshot.authors,
+        keep_days,
+    );
     store.save(&next)?;
     *history = Some(next);
     Ok(())

@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::db::ExecutionDelta;
+use crate::model::Workflow;
+use crate::radar::Finding;
 
 const FILE: &str = "history.json";
 
@@ -106,11 +108,264 @@ pub struct History {
     /// By date, `YYYY-MM-DD`.
     #[serde(default)]
     pub days: BTreeMap<String, Day>,
+    /// What the previous scan saw, to tell what changed since. `None` before
+    /// the first scan that looked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<Seen>,
+    /// What changed, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<Event>,
+}
+
+/// The findings and workflows of the previous scan.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Seen {
+    /// By finding key.
+    #[serde(default)]
+    pub findings: BTreeMap<String, SeenFinding>,
+    /// By workflow id.
+    #[serde(default)]
+    pub workflows: BTreeMap<String, SeenWorkflow>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeenFinding {
+    /// When it first appeared, in seconds since 1970. 0 for the findings that
+    /// were already there the first time nbuddyn looked.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub since: u64,
+    pub check: String,
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeenWorkflow {
+    pub name: String,
+    pub active: bool,
+    pub print: u64,
+}
+
+/// Something that changed between two scans.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Event {
+    /// Seconds since 1970, of the scan that noticed.
+    pub at: u64,
+    /// `finding_new`, `finding_resolved`, or `workflow_` followed by
+    /// `created`, `deleted`, `changed`, `renamed`, `activated`, `deactivated`.
+    pub kind: String,
+    /// For findings: which check, and how severe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Who saved the workflow, when n8n says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+}
+
+/// The most events kept; older ones go first.
+const EVENTS_MAX: usize = 5000;
+/// A workflow counts as having run "most days" with this many days of runs...
+const USUAL_DAYS: usize = 7;
+/// ...out of this many days...
+const USUAL_WINDOW: i64 = 14;
+/// ...and as gone quiet after this many days without a single run.
+const QUIET_DAYS: i64 = 3;
+
+impl History {
+    /// Compares this scan with the previous one, writes down what changed and
+    /// remembers this scan for the next comparison. The first time there is
+    /// nothing to compare with, so nothing is written down.
+    pub fn observe(
+        &mut self,
+        now: u64,
+        findings: &[Finding],
+        workflows: &[Workflow],
+        authors: &std::collections::HashMap<String, String>,
+        keep_days: u32,
+    ) {
+        let previous = self.seen.take();
+        let mut seen = Seen::default();
+        let mut events = Vec::new();
+
+        for f in findings {
+            let key = f.key();
+            let known = previous.as_ref().and_then(|p| p.findings.get(&key));
+            let entry = SeenFinding {
+                since: match (&previous, known) {
+                    (_, Some(known)) => known.since,
+                    (Some(_), None) => now,
+                    (None, None) => 0,
+                },
+                check: f.check.to_owned(),
+                severity: severity_name(f),
+                workflow: f.workflow.clone(),
+                node: f.node.clone(),
+                path: f.path(),
+            };
+            if previous.is_some() && known.is_none() {
+                events.push(Event {
+                    at: now,
+                    kind: "finding_new".into(),
+                    check: Some(entry.check.clone()),
+                    severity: Some(entry.severity.clone()),
+                    workflow: entry.workflow.clone(),
+                    node: entry.node.clone(),
+                    detail: f.detail.clone(),
+                    path: entry.path.clone(),
+                    author: None,
+                });
+            }
+            seen.findings.insert(key, entry);
+        }
+        for (key, gone) in previous.iter().flat_map(|p| &p.findings) {
+            if !seen.findings.contains_key(key) {
+                events.push(Event {
+                    at: now,
+                    kind: "finding_resolved".into(),
+                    check: Some(gone.check.clone()),
+                    severity: Some(gone.severity.clone()),
+                    workflow: gone.workflow.clone(),
+                    node: gone.node.clone(),
+                    detail: None,
+                    path: gone.path.clone(),
+                    author: None,
+                });
+            }
+        }
+
+        let about = |kind: &str, id: &str, name: &str, detail: Option<String>| Event {
+            at: now,
+            kind: format!("workflow_{kind}"),
+            workflow: Some(name.to_owned()),
+            detail,
+            path: crate::radar::workflow_path(id),
+            author: authors.get(id).cloned().filter(|a| !a.trim().is_empty()),
+            ..Event::default()
+        };
+        for wf in workflows.iter().filter(|w| !w.archived) {
+            let entry = SeenWorkflow {
+                name: wf.name.clone(),
+                active: wf.active,
+                print: wf.print,
+            };
+            if let Some(previous) = &previous {
+                match previous.workflows.get(&wf.id) {
+                    None => events.push(about("created", &wf.id, &wf.name, None)),
+                    Some(before) => {
+                        if before.name != entry.name {
+                            let was = Some(before.name.clone());
+                            events.push(about("renamed", &wf.id, &wf.name, was));
+                        }
+                        if before.print != entry.print {
+                            events.push(about("changed", &wf.id, &wf.name, None));
+                        }
+                        if before.active != entry.active {
+                            let kind = if entry.active {
+                                "activated"
+                            } else {
+                                "deactivated"
+                            };
+                            events.push(about(kind, &wf.id, &wf.name, None));
+                        }
+                    }
+                }
+            }
+            seen.workflows.insert(wf.id.clone(), entry);
+        }
+        for (id, gone) in previous.iter().flat_map(|p| &p.workflows) {
+            if !seen.workflows.contains_key(id) {
+                let mut event = about("deleted", id, &gone.name, None);
+                // It is gone: there is nowhere to link to and nobody to name.
+                event.path = None;
+                event.author = None;
+                events.push(event);
+            }
+        }
+
+        self.seen = Some(seen);
+        self.events.extend(events);
+        let oldest = now.saturating_sub(u64::from(keep_days) * 86_400);
+        self.events.retain(|e| e.at >= oldest);
+        if self.events.len() > EVENTS_MAX {
+            let extra = self.events.len() - EVENTS_MAX;
+            self.events.drain(..extra);
+        }
+    }
+
+    /// Workflows that ran on most of the days before the last few and not once
+    /// since: their id and the last day they ran.
+    pub fn quiet(&self) -> Vec<(String, String)> {
+        let Some(today) = day_number(&self.today) else {
+            return Vec::new();
+        };
+        let ran_on = |number: i64, id: &str| {
+            self.days
+                .get(&day_name(number))
+                .and_then(|d| d.runs.get(id))
+                .is_some_and(|c| c.total() > 0)
+        };
+        let recent = (today - QUIET_DAYS + 1)..=today;
+        let before = (today - QUIET_DAYS - USUAL_WINDOW + 1)..=(today - QUIET_DAYS);
+        self.names
+            .keys()
+            .filter(|id| !recent.clone().any(|n| ran_on(n, id)))
+            .filter_map(|id| {
+                let days: Vec<i64> = before.clone().filter(|n| ran_on(*n, id)).collect();
+                let last = *days.last()?;
+                (days.len() >= USUAL_DAYS).then(|| (id.clone(), day_name(last)))
+            })
+            .collect()
+    }
+
+    /// When a finding first appeared, if it appeared after nbuddyn started
+    /// looking.
+    pub fn since(&self, key: &str) -> Option<u64> {
+        self.seen
+            .as_ref()
+            .and_then(|s| s.findings.get(key))
+            .map(|f| f.since)
+            .filter(|since| *since > 0)
+    }
+
+    /// The events at or after `from`, newest first.
+    pub fn events_since(&self, from: u64) -> Vec<&Event> {
+        self.events
+            .iter()
+            .rev()
+            .take_while(|e| e.at >= from)
+            .collect()
+    }
+}
+
+fn severity_name(f: &Finding) -> String {
+    serde_json::to_value(f.severity)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 impl History {
-    /// Adds what one scan saw and forgets days older than `keep_days`.
-    pub fn record(&mut self, delta: ExecutionDelta, score: u32, keep_days: u32) {
+    /// Adds the executions one scan saw finish and moves the cursor past them.
+    pub fn record_runs(&mut self, delta: ExecutionDelta) {
         for tally in delta.finished {
             let counts = self
                 .days
@@ -126,10 +381,21 @@ impl History {
             }
             if !tally.workflow_name.is_empty() {
                 self.names.insert(tally.workflow_id, tally.workflow_name);
+            } else {
+                // Still listed, under its id, when the workflow is gone.
+                self.names
+                    .entry(tally.workflow_id.clone())
+                    .or_insert(tally.workflow_id);
             }
         }
+        self.cursor = delta.upto;
+        self.pending = delta.unfinished;
+        self.today = delta.today;
+    }
 
-        let day = self.days.entry(delta.today.clone()).or_default();
+    /// Notes today's score and forgets days older than `keep_days`.
+    pub fn record_score(&mut self, today: &str, score: u32, keep_days: u32) {
+        let day = self.days.entry(today.to_owned()).or_default();
         day.score = Some(match day.score {
             None => ScoreDay {
                 min: score,
@@ -142,17 +408,20 @@ impl History {
                 last: score,
             },
         });
-
-        self.cursor = delta.upto;
-        self.pending = delta.unfinished;
-        self.today = delta.today;
-
-        if let Some(cutoff) = day_number(&self.today).map(|n| day_name(n - i64::from(keep_days))) {
+        if let Some(cutoff) = day_number(today).map(|n| day_name(n - i64::from(keep_days))) {
             self.days.retain(|day, _| *day >= cutoff);
             let days = &self.days;
             self.names
                 .retain(|id, _| days.values().any(|d| d.runs.contains_key(id)));
         }
+    }
+
+    /// Both steps of one scan, in order.
+    #[cfg(test)]
+    pub fn record(&mut self, delta: ExecutionDelta, score: u32, keep_days: u32) {
+        let today = delta.today.clone();
+        self.record_runs(delta);
+        self.record_score(&today, score, keep_days);
     }
 
     /// The last `span` days ending today, oldest first, with empty days filled in.
@@ -427,9 +696,9 @@ mod tests {
                 last: 80
             })
         );
-        // The latest name wins; a deleted workflow keeps showing by its id.
+        // The latest name wins; a workflow that is gone shows under its id.
         assert_eq!(history.names["a"], "Ventas nuevas");
-        assert!(!history.names.contains_key("b"));
+        assert_eq!(history.names["b"], "b");
     }
 
     #[test]
@@ -488,6 +757,144 @@ mod tests {
             vec!["2026-11-20", "2026-11-22"]
         );
         assert_eq!(history.names.keys().collect::<Vec<_>>(), vec!["new"]);
+    }
+
+    fn finding(check: &'static str, workflow: &str) -> Finding {
+        Finding {
+            check,
+            severity: crate::radar::Severity::Medium,
+            workflow: Some(workflow.into()),
+            node: None,
+            detail: None,
+            active: Some(true),
+            workflow_id: Some(workflow.into()),
+            subject: None,
+        }
+    }
+
+    fn workflow(id: &str, name: &str, active: bool, nodes: &str) -> Workflow {
+        Workflow::from_raw(id.into(), name.into(), active, false, nodes, None)
+    }
+
+    #[test]
+    fn the_first_look_is_a_baseline_and_later_looks_report_what_changed() {
+        let authors = std::collections::HashMap::from([("w1".to_owned(), "Ana Paz".to_owned())]);
+        let mut history = History::default();
+        history.observe(
+            100,
+            &[finding("no_error_workflow", "w1")],
+            &[
+                workflow("w1", "Ventas", true, "[]"),
+                workflow("w2", "Stock", true, "[]"),
+            ],
+            &authors,
+            400,
+        );
+        assert!(history.events.is_empty());
+        assert_eq!(
+            history.since(&finding("no_error_workflow", "w1").key()),
+            None
+        );
+
+        history.observe(
+            200,
+            &[finding("public_entry_no_auth", "w1")],
+            &[
+                workflow("w1", "Ventas 2", false, r#"[{"name":"a"}]"#),
+                workflow("w3", "Nuevo", true, "[]"),
+            ],
+            &authors,
+            400,
+        );
+        let kinds: Vec<(&str, Option<&str>)> = history
+            .events
+            .iter()
+            .map(|e| (e.kind.as_str(), e.workflow.as_deref()))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("finding_new", Some("w1")),
+                ("finding_resolved", Some("w1")),
+                ("workflow_renamed", Some("Ventas 2")),
+                ("workflow_changed", Some("Ventas 2")),
+                ("workflow_deactivated", Some("Ventas 2")),
+                ("workflow_created", Some("Nuevo")),
+                ("workflow_deleted", Some("Stock")),
+            ]
+        );
+        let renamed = &history.events[2];
+        assert_eq!(renamed.detail.as_deref(), Some("Ventas"));
+        assert_eq!(renamed.author.as_deref(), Some("Ana Paz"));
+        assert_eq!(renamed.path.as_deref(), Some("/workflow/w1"));
+        assert_eq!(history.events[6].path, None);
+        assert_eq!(
+            history.since(&finding("public_entry_no_auth", "w1").key()),
+            Some(200)
+        );
+
+        // Nothing changed: nothing is added, and old events age out.
+        let same = [
+            workflow("w1", "Ventas 2", false, r#"[{"name":"a"}]"#),
+            workflow("w3", "Nuevo", true, "[]"),
+        ];
+        history.observe(
+            300,
+            &[finding("public_entry_no_auth", "w1")],
+            &same,
+            &authors,
+            400,
+        );
+        assert_eq!(history.events.len(), 7);
+        assert_eq!(history.events_since(250).len(), 0);
+        assert_eq!(history.events_since(200).len(), 7);
+        history.observe(
+            200 + 2 * 86_400,
+            &[finding("public_entry_no_auth", "w1")],
+            &same,
+            &authors,
+            1,
+        );
+        assert!(history.events.is_empty());
+    }
+
+    #[test]
+    fn a_workflow_that_ran_most_days_and_stopped_is_noticed() {
+        let mut history = History::default();
+        let mut tallies = Vec::new();
+        // "daily" ran every day until four days ago; "rare" ran twice; "alive" still runs.
+        for back in 4..18 {
+            tallies.push(tally(
+                "daily",
+                "Diario",
+                &day_name(20_779 - back),
+                Outcome::Ok,
+                3,
+            ));
+        }
+        for back in [5, 12] {
+            tallies.push(tally(
+                "rare",
+                "Raro",
+                &day_name(20_779 - back),
+                Outcome::Ok,
+                1,
+            ));
+        }
+        for back in 0..18 {
+            tallies.push(tally(
+                "alive",
+                "Vivo",
+                &day_name(20_779 - back),
+                Outcome::Failed,
+                1,
+            ));
+        }
+        history.record(delta("2026-11-22", 9, tallies), 80, 400);
+        assert_eq!(
+            history.quiet(),
+            vec![("daily".to_owned(), "2026-11-18".to_owned())]
+        );
     }
 
     #[test]

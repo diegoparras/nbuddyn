@@ -57,7 +57,37 @@ pub const CHECKS: &[&str] = &[
     "no_workers",
     "version_mismatch",
     "runner_down",
+    "stale_workflow",
 ];
+
+/// What a change to a workflow is called.
+pub fn event_label(lang: Lang, kind: &str) -> &'static str {
+    match kind {
+        "workflow_created" => lang.pick("Workflow created", "Workflow creado", "Workflow criado"),
+        "workflow_deleted" => lang.pick("Workflow deleted", "Workflow borrado", "Workflow apagado"),
+        "workflow_changed" => lang.pick(
+            "Workflow edited",
+            "Workflow modificado",
+            "Workflow modificado",
+        ),
+        "workflow_renamed" => lang.pick(
+            "Workflow renamed",
+            "Workflow renombrado",
+            "Workflow renomeado",
+        ),
+        "workflow_activated" => lang.pick(
+            "Workflow activated",
+            "Workflow activado",
+            "Workflow ativado",
+        ),
+        "workflow_deactivated" => lang.pick(
+            "Workflow deactivated",
+            "Workflow desactivado",
+            "Workflow desativado",
+        ),
+        _ => "",
+    }
+}
 
 /// Heading for a group of `count` findings of one check, such as
 /// "5 MCP servers or chats without authentication".
@@ -234,6 +264,18 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
             "El cluster corre versiones distintas de n8n",
             "O cluster está rodando versões diferentes do n8n",
         )),
+        "stale_workflow" => (
+            lang.pick(
+                "A workflow stopped running",
+                "Un workflow dejó de ejecutarse",
+                "Um workflow parou de executar",
+            ),
+            lang.pick(
+                "{n} workflows stopped running",
+                "{n} workflows dejaron de ejecutarse",
+                "{n} workflows pararam de executar",
+            ),
+        ),
         "runner_down" => (
             lang.pick(
                 "A task runner is not answering",
@@ -342,6 +384,11 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "Main, workers and webhook processors must run the same version. Finish the update on the ones left behind.",
             "Main, workers y webhooks tienen que correr la misma versión. Terminá la actualización en los que quedaron atrás.",
             "Main, workers e webhooks precisam rodar a mesma versão. Conclua a atualização nos que ficaram para trás.",
+        ),
+        "stale_workflow" => lang.pick(
+            "It used to run most days and has not run in three. Check its trigger, its schedule and whether it is still published.",
+            "Corría casi todos los días y hace tres que no corre. Revisá su disparador, su horario y si sigue publicado.",
+            "Rodava quase todos os dias e há três não roda. Verifique o gatilho, o horário e se continua publicado.",
         ),
         "runner_down" => lang.pick(
             "Code nodes on its worker will fail or wait until it is back. Check that runner's service and its logs.",
@@ -561,6 +608,18 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub nav_activity: &'static str,
+    pub changes_title: &'static str,
+    pub changes_new: &'static str,
+    pub changes_resolved: &'static str,
+    pub changes_workflows: &'static str,
+    pub nothing_changed: &'static str,
+    pub new_tag: &'static str,
+    pub by: &'static str,
+    pub was: &'static str,
+    pub event_new: &'static str,
+    pub event_resolved: &'static str,
+    pub activity_note: &'static str,
     pub instances: &'static str,
     pub set_name: &'static str,
     pub set_database_url: &'static str,
@@ -1130,6 +1189,66 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        nav_activity: lang.pick(
+            "Activity",
+            "Actividad",
+            "Atividade",
+        ),
+        changes_title: lang.pick(
+            "Last 24 hours",
+            "Últimas 24 horas",
+            "Últimas 24 horas",
+        ),
+        changes_new: lang.pick(
+            "new findings",
+            "hallazgos nuevos",
+            "achados novos",
+        ),
+        changes_resolved: lang.pick(
+            "resolved",
+            "resueltos",
+            "resolvidos",
+        ),
+        changes_workflows: lang.pick(
+            "workflow changes",
+            "cambios en workflows",
+            "mudanças em workflows",
+        ),
+        nothing_changed: lang.pick(
+            "Nothing changed in this period.",
+            "No cambió nada en este período.",
+            "Nada mudou neste período.",
+        ),
+        new_tag: lang.pick(
+            "new",
+            "nuevo",
+            "novo",
+        ),
+        by: lang.pick(
+            "by",
+            "por",
+            "por",
+        ),
+        was: lang.pick(
+            "was",
+            "antes",
+            "antes",
+        ),
+        event_new: lang.pick(
+            "New",
+            "Nuevo",
+            "Novo",
+        ),
+        event_resolved: lang.pick(
+            "Resolved",
+            "Resuelto",
+            "Resolvido",
+        ),
+        activity_note: lang.pick(
+            "nbuddyn compares each scan with the one before. Changes show up within one scan interval.",
+            "nbuddyn compara cada barrido con el anterior. Los cambios aparecen dentro de un intervalo de barrido.",
+            "O nbuddyn compara cada varredura com a anterior. As mudanças aparecem dentro de um intervalo de varredura.",
         ),
         instances: lang.pick(
             "Your n8n instances",

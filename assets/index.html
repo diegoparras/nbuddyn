@@ -191,6 +191,20 @@
   .linkbtn:hover { text-decoration: underline; }
   .hint { font-size: 13px; color: var(--muted); margin: 14px 2px 0; }
 
+  /* Activity */
+  .day { font: 500 12px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 22px 2px 8px; }
+  .events { list-style: none; margin: 0; padding: 0; }
+  .events li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 11px 18px; border-bottom: 1px solid var(--line); }
+  .events li:last-child { border-bottom: 0; }
+  .events time { flex: 0 0 48px; font: 13px var(--mono); color: var(--muted); }
+  .events .kind { flex: 0 0 auto; }
+  .events .what { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+  .events .what .node, .events .what small { color: var(--muted); font-size: 13px; }
+  .events .who { flex: 0 1 auto; font-size: 13px; color: var(--soft); }
+  .changes { display: grid; grid-template-columns: repeat(3, 1fr); padding: 14px 18px; gap: 10px; }
+  .changes b { display: block; font: 500 24px var(--mono); line-height: 1.2; }
+  .changes span { font-size: 13px; color: var(--muted); }
+
   /* History */
   .ranges { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
   .ranges button { background: none; border: 0; color: var(--muted); padding: 0 12px; min-height: 30px; font: 500 13px var(--mono); border-radius: 4px; }
@@ -283,6 +297,7 @@
   <section class="view" id="view-overview"></section>
   <section class="view" id="view-findings" hidden></section>
   <section class="view" id="view-cluster" hidden></section>
+  <section class="view" id="view-activity" hidden></section>
   <section class="view" id="view-history" hidden></section>
   <section class="view" id="view-settings" hidden></section>
   <footer id="footer"></footer>
@@ -292,7 +307,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var SVG = "http://www.w3.org/2000/svg";
-  var VIEWS = ["overview", "findings", "cluster", "history", "settings"];
+  var VIEWS = ["overview", "findings", "cluster", "activity", "history", "settings"];
   var SEVERITIES = ["high", "medium", "low", "info"];
   var SERIES = { ok: "#4A8FE8", failed: "#E85D3F", canceled: "#6B7A8C" };
   var RANGES = [7, 30, 90];
@@ -311,7 +326,7 @@
     lang: stored("nbuddyn.lang") || (navigator.language || "en").slice(0, 2),
     instance: stored("nbuddyn.instance") || "",
     view: "overview",
-    report: null, history: null, week: null,
+    report: null, history: null, week: null, activity: null, activityKind: "all",
     range: Number(stored("nbuddyn.range")) || 30,
     filter: { severity: "all", query: "", light: null },
     open: {}, expanded: {},
@@ -366,7 +381,7 @@
     store("nbuddyn.instance", id);
     state.open = {}; state.expanded = {};
     state.filter = { severity: "all", query: "", light: null };
-    state.history = null; state.week = null;
+    state.history = null; state.week = null; state.activity = null;
     return load().then(function () { if (state.view === "settings") renderSettings(); });
   }
   function get(path) {
@@ -452,7 +467,7 @@
     var open = r.available ? r.totals.urgent + r.totals.important + r.totals.minor + r.totals.info : 0;
     var nav = $("nav");
     nav.replaceChildren();
-    [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["history", ui.history], ["settings", ui.settings]].forEach(function (t) {
+    [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["activity", ui.nav_activity], ["history", ui.history], ["settings", ui.settings]].forEach(function (t) {
       var link = h("a", { href: "#/" + t[0], text: t[1] });
       if (t[0] === state.view) link.setAttribute("aria-current", "page");
       if (t[2]) link.appendChild(h("span", "badge" + (urgent ? " high" : ""), t[2]));
@@ -573,6 +588,14 @@
       if (r.runners) row(ui.runners, r.runners.alive + " / " + r.runners.total, r.runners.alive < r.runners.total ? "risk" : "ok");
       side.appendChild(h("div", "card", h("h2", null, ui.nav_cluster, h("a", { href: "#/cluster", text: ui.see + " →" })), kv));
     }
+    if (r.changes) {
+      var ch = r.changes;
+      side.appendChild(h("div", "card", h("h2", null, ui.changes_title, h("a", { href: "#/activity", text: ui.see + " →" })),
+        h("div", "changes",
+          h("div", null, h("b", ch.new ? "risk" : null, ch.new), h("span", null, ui.changes_new)),
+          h("div", null, h("b", ch.resolved ? "ok" : null, ch.resolved), h("span", null, ui.changes_resolved)),
+          h("div", null, h("b", null, ch.workflows), h("span", null, ui.changes_workflows)))));
+    }
     var week = state.week;
     if (week && week.enabled && week.days.length) {
       var total = runsOf(week.totals);
@@ -689,7 +712,9 @@
           (all ? items : items.slice(0, 6)).forEach(function (it) {
             var named = it.workflow || it.node;
             var li = h("li", null,
-              h("div", "what" + (named ? "" : " mono"), named ? whereOf(it, ui) : (it.detail || ""), it.active === false ? h("span", "tag", ui.inactive) : null),
+              h("div", "what" + (named ? "" : " mono"), named ? whereOf(it, ui) : (it.detail || ""),
+                it.active === false ? h("span", "tag", ui.inactive) : null,
+                it.since && Date.now() / 1000 - it.since < 86400 ? h("span", { class: "tag", style: "color:var(--amber);border-color:var(--amber)", title: new Date(it.since * 1000).toLocaleString(r.lang), text: ui.new_tag }) : null),
               named ? h("div", "detail", it.detail || "") : null);
             if (r.writable) li.appendChild(h("div", "act", acceptButton(it, ui, li)));
             list.appendChild(li);
@@ -767,6 +792,45 @@
       cols.appendChild(h("div", "card", h("h2", null, ui.redis_memory), redis, facts.childNodes.length ? facts : null));
     }
     fill(view, head, tiles, off, cols);
+  }
+
+  /* ---------- Activity ---------- */
+  function renderActivity() {
+    var r = state.report, ui = r.ui, act = state.activity, view = $("view-activity");
+    var head = h("header", null, h("h1", null, ui.nav_activity));
+    if (!act) return fill(view, head, h("div", "card empty", h("p", null, ui.loading)));
+    if (!act.enabled) return fill(view, head, h("div", "card empty", h("p", null, ui.history_off)));
+    var isFinding = function (e) { return e.kind.indexOf("finding_") === 0; };
+    var chips = h("div", "filters");
+    [["all", ui.all, act.events.length], ["findings", ui.nav_findings, act.events.filter(isFinding).length], ["workflows", ui.col_workflow + "s", act.events.filter(function (e) { return !isFinding(e); }).length]].forEach(function (c) {
+      chips.appendChild(h("button", { type: "button", class: "chip", "aria-pressed": String(state.activityKind === c[0]), on: { click: function () { state.activityKind = c[0]; renderActivity(); } } }, c[1], h("b", null, c[2])));
+    });
+    var events = act.events.filter(function (e) { return state.activityKind === "all" || (state.activityKind === "findings") === isFinding(e); });
+    var body = h("div");
+    if (!events.length) body.appendChild(h("div", "card empty", h("p", null, ui.nothing_changed)));
+    var list = null, lastDay = "";
+    events.forEach(function (e) {
+      var when = new Date(e.at * 1000), day = when.toLocaleDateString(r.lang, { weekday: "long", day: "numeric", month: "long" });
+      if (day !== lastDay) {
+        lastDay = day;
+        list = h("ul", "events");
+        body.appendChild(h("div", "day", day));
+        body.appendChild(h("div", "card", list));
+      }
+      var pill = e.kind === "finding_new" ? h("span", "pill " + (e.severity || "info"), ui.event_new)
+        : e.kind === "finding_resolved" ? h("span", "pill ok", ui.event_resolved)
+        : h("span", "pill info", e.label);
+      var what = h("div", "what");
+      if (isFinding(e)) what.appendChild(h("div", null, e.label));
+      what.appendChild(whereOf(e, ui));
+      if (e.kind === "workflow_renamed" && e.detail) what.appendChild(h("small", null, "  " + ui.was + ": " + e.detail));
+      else if (isFinding(e) && e.detail) what.appendChild(h("small", null, "  " + e.detail));
+      list.appendChild(h("li", null,
+        h("time", { dateTime: when.toISOString(), text: when.toLocaleTimeString(r.lang, { hour: "2-digit", minute: "2-digit" }) }),
+        h("div", "kind", pill), what,
+        e.author ? h("div", "who", ui.by + " " + e.author) : null));
+    });
+    fill(view, head, chips, body, h("p", "hint", ui.activity_note));
   }
 
   /* ---------- History ---------- */
@@ -1060,6 +1124,7 @@
     renderOverview();
     renderFindings();
     renderCluster();
+    renderActivity();
     renderHistory();
   }
   function show() {
@@ -1075,6 +1140,12 @@
     if (state.view === "settings") renderSettings();
     if (changed) window.scrollTo(0, 0);
   }
+  function loadActivity() {
+    return get(at("api/activity?days=30&lang=" + encodeURIComponent(state.lang))).then(function (a) {
+      state.activity = a;
+      if (state.report) renderActivity();
+    }).catch(function (err) { console.error("nbuddyn", err); });
+  }
   function loadHistory() {
     return get(at("api/history?days=" + state.range)).then(function (hist) {
       state.history = hist;
@@ -1089,6 +1160,7 @@
     });
     return Promise.all([report, week]).then(function () {
       renderAll();
+      loadActivity();
       return loadHistory();
     }).catch(function (err) { console.error("nbuddyn", err); });
   }

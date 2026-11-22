@@ -22,6 +22,7 @@ It contains no n8n code and does not unlock, replace or bypass any licensed n8n 
 | High / Medium | Secrets written inside nodes (reported by kind, never by value) |
 | Medium | Active webhooks and forms without authentication |
 | Medium | Active workflows without an error workflow |
+| Medium | Active workflows that used to run most days and stopped (needs the history) |
 | Medium | Unencrypted `http://` calls to external hosts |
 | Medium | Users without two-factor authentication |
 | Medium / Low | Nodes removed in n8n 3 that are still present |
@@ -65,6 +66,25 @@ n8n still has, so the history does not start empty.
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
+## What changed
+
+nbuddyn compares every scan with the one before and keeps a log, shown under **Activity**:
+
+- findings that appeared and findings that were resolved;
+- workflows created, edited, renamed, activated, deactivated or deleted, with who saved
+  them when n8n records it;
+- active workflows that used to run most days and have not run in three (reported as a
+  finding).
+
+The overview counts the last 24 hours, and a finding that appeared in that time is marked
+as new. To name who saved a workflow on Postgres, nbuddyn needs two more grants; without
+them everything else still works:
+
+```sql
+GRANT SELECT ("versionId") ON workflow_entity TO nbuddyn;
+GRANT SELECT ("versionId", authors) ON workflow_history TO nbuddyn;
+```
+
 ## Several n8n instances
 
 One nbuddyn can watch several n8n: production and staging, or one per client. The first
@@ -97,8 +117,8 @@ gets worse (say, from important to urgent) comes back by itself.
 ## For AI assistants (MCP)
 
 Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
-assistant such as Claude can ask about your n8n in plain words. It offers four tools,
-all read-only: `list_instances`, `get_status`, `list_findings` and `get_history`. They return what the page
+assistant such as Claude can ask about your n8n in plain words. It offers five tools,
+all read-only: `list_instances`, `get_status`, `list_findings`, `get_activity` and `get_history`. They return what the page
 shows and nothing else: no secrets, no execution data, and no way to change n8n.
 
 The endpoint is off without a token, and every request must carry it as

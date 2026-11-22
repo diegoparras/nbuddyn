@@ -2,7 +2,7 @@
 //!
 //! It speaks the Model Context Protocol over plain HTTP: every request is one
 //! JSON-RPC message in a POST and gets one JSON answer. It keeps no session,
-//! offers four tools that only read what the page already shows, and is off
+//! offers five tools that only read what the page already shows, and is off
 //! unless a token is configured.
 
 use std::sync::Arc;
@@ -158,6 +158,28 @@ fn tools() -> Value {
             "annotations": read_only,
         },
         {
+            "name": "get_activity",
+            "title": "n8n activity",
+            "description": "What changed lately in the n8n instance, newest first: findings that \
+                appeared or were resolved, and workflows created, edited, renamed, activated, \
+                deactivated or deleted, with who saved them when n8n records it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": web::MAX_SPAN,
+                        "description": "How many days back. Defaults to 7.",
+                    },
+                    "lang": lang,
+                    "instance": instance,
+                },
+                "additionalProperties": false,
+            },
+            "annotations": read_only,
+        },
+        {
             "name": "get_history",
             "title": "n8n execution history",
             "description": "Executions per day and per workflow (succeeded, failed, canceled) \
@@ -210,6 +232,13 @@ async fn call(state: &AppState, params: &Value) -> Result<Value, (i64, String)> 
         "list_findings" => {
             let severity = args.get("severity").and_then(Value::as_str);
             findings(web::current_report(state, lang, instance).await, severity)
+        }
+        "get_activity" => {
+            let days = args
+                .get("days")
+                .and_then(Value::as_u64)
+                .and_then(|d| u32::try_from(d).ok());
+            web::current_activity(state, lang, days, instance).await
         }
         "get_history" => {
             let days = args
@@ -276,7 +305,7 @@ mod tests {
     fn every_tool_is_declared_read_only() {
         let tools = tools();
         let tools = tools.as_array().unwrap();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
         for tool in tools {
             assert_eq!(
                 tool["annotations"]["readOnlyHint"], true,

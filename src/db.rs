@@ -136,6 +136,7 @@ async fn pg_snapshot(client: &Client) -> Result<Snapshot, DbError> {
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
+        authors: authors(client).await,
         workflows: workflows(client).await?,
         credentials: credentials(client).await?,
         error_counts: error_counts(client).await?,
@@ -180,6 +181,22 @@ async fn workflows(client: &Client) -> Result<Vec<Workflow>, DbError> {
             )
         })
         .collect())
+}
+
+/// Optional: needs two more grants than the rest. Without them the change log
+/// still works, it just cannot say who made a change.
+async fn authors(client: &Client) -> std::collections::HashMap<String, String> {
+    let rows = client
+        .query(
+            r#"select w.id::text, h.authors::text
+               from workflow_entity w
+               join workflow_history h on h."versionId" = w."versionId"
+               where h.authors is not null"#,
+            &[],
+        )
+        .await
+        .unwrap_or_default();
+    rows.iter().map(|r| (r.get(0), r.get(1))).collect()
 }
 
 async fn credentials(client: &Client) -> Result<Vec<Credential>, DbError> {

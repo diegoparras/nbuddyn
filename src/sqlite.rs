@@ -119,10 +119,25 @@ fn snapshot(conn: &Connection) -> rusqlite::Result<Snapshot> {
         })?
         .collect::<rusqlite::Result<_>>()?;
 
+    // Older n8n versions have no workflow history; then nobody is named.
+    let authors = conn
+        .prepare(
+            r#"select w.id, h.authors from workflow_entity w
+               join workflow_history h on h."versionId" = w."versionId"
+               where h.authors is not null"#,
+        )
+        .and_then(|mut query| {
+            query
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()
+        })
+        .unwrap_or_default();
+
     let count = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0));
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
+        authors,
         workflows,
         credentials,
         error_counts,

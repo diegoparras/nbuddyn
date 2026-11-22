@@ -22,6 +22,8 @@ pub struct Workflow {
     pub archived: bool,
     pub has_error_workflow: bool,
     pub nodes: Vec<Node>,
+    /// Changes whenever the saved definition changes.
+    pub print: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -63,6 +65,9 @@ pub struct Snapshot {
     pub cluster: Option<Cluster>,
     /// One answer per configured task runner; empty when none is configured.
     pub runners: Vec<RunnerProbe>,
+    /// Who saved the current version of each workflow, by workflow id, where
+    /// n8n keeps it and nbuddyn may read it.
+    pub authors: std::collections::HashMap<String, String>,
 }
 
 impl Workflow {
@@ -99,8 +104,22 @@ impl Workflow {
             archived,
             has_error_workflow,
             nodes,
+            print: fingerprint(&[nodes_json, settings_json.unwrap_or_default()]),
         }
     }
+}
+
+/// A number that identifies these texts: the same texts always give the same
+/// number, on any machine and in any version of nbuddyn (FNV-1a).
+fn fingerprint(parts: &[&str]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in parts {
+        for byte in part.bytes().chain(std::iter::once(0xff)) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
 }
 
 impl Node {
