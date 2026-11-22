@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
+use crate::cluster::Cluster;
 use crate::model::{Node, Snapshot, Workflow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -167,6 +168,10 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
         });
     }
 
+    if let Some(cluster) = &snapshot.cluster {
+        check_cluster(cluster, &mut findings);
+    }
+
     if snapshot.users_without_mfa > 0 {
         findings.push(Finding {
             check: "no_mfa",
@@ -315,6 +320,81 @@ fn on_node(
         node: Some(node.name.clone()),
         detail,
         active: Some(wf.active),
+    }
+}
+
+/// Jobs waiting in the queue before the backlog is worth reporting, and before it is urgent.
+const BACKLOG_NOTICE: i64 = 100;
+const BACKLOG_URGENT: i64 = 1000;
+/// Share of Redis' memory limit, in percent, from which it counts as nearly full.
+const REDIS_NEARLY_FULL: i64 = 80;
+
+fn check_cluster(cluster: &Cluster, out: &mut Vec<Finding>) {
+    let on_instance = |check, severity, detail: String| Finding {
+        check,
+        severity,
+        workflow: None,
+        node: None,
+        detail: Some(detail),
+        active: None,
+    };
+
+    let redis = &cluster.redis;
+    if redis.max_memory > 0 {
+        // With any policy other than `noeviction`, a full Redis makes room by
+        // deleting keys, and the queue's jobs are keys like any other.
+        if !redis.eviction_policy.is_empty() && redis.eviction_policy != "noeviction" {
+            if redis.evicted_keys > 0 {
+                out.push(on_instance(
+                    "redis_eviction",
+                    Severity::High,
+                    format!("{} · {}", redis.eviction_policy, redis.evicted_keys),
+                ));
+            } else {
+                out.push(on_instance(
+                    "redis_eviction",
+                    Severity::Medium,
+                    redis.eviction_policy.clone(),
+                ));
+            }
+        }
+        let used_percent = redis.used_memory.saturating_mul(100) / redis.max_memory;
+        if used_percent >= REDIS_NEARLY_FULL {
+            out.push(on_instance(
+                "redis_memory_high",
+                Severity::High,
+                format!("{used_percent}%"),
+            ));
+        }
+    }
+
+    let waiting = cluster.queue.waiting;
+    if waiting >= BACKLOG_NOTICE {
+        let severity = if waiting >= BACKLOG_URGENT {
+            Severity::High
+        } else {
+            Severity::Medium
+        };
+        out.push(on_instance("queue_backlog", severity, waiting.to_string()));
+    }
+
+    // n8n registers its processes from version 3; an empty list means an older
+    // n8n, not a cluster without workers.
+    if !cluster.members.is_empty() && cluster.count("worker") == 0 {
+        out.push(on_instance(
+            "no_workers",
+            Severity::High,
+            waiting.to_string(),
+        ));
+    }
+
+    let versions = cluster.versions();
+    if versions.len() > 1 {
+        out.push(on_instance(
+            "version_mismatch",
+            Severity::High,
+            versions.join(" · "),
+        ));
     }
 }
 
@@ -509,6 +589,127 @@ mod tests {
                 active: Some(true),
             })
             .collect()
+    }
+
+    fn cluster_of(
+        waiting: i64,
+        policy: &str,
+        used: i64,
+        evicted: i64,
+        kinds: &[(&str, &str)],
+    ) -> Cluster {
+        use crate::cluster::{Member, Queue, RedisHealth};
+        Cluster {
+            queue: Queue {
+                waiting,
+                ..Queue::default()
+            },
+            redis: RedisHealth {
+                used_memory: used,
+                max_memory: 1000,
+                eviction_policy: policy.into(),
+                evicted_keys: evicted,
+            },
+            members: kinds
+                .iter()
+                .map(|(kind, version)| Member {
+                    kind: (*kind).into(),
+                    host_id: String::new(),
+                    version: (*version).into(),
+                })
+                .collect(),
+        }
+    }
+
+    fn cluster_findings(cluster: Cluster) -> Vec<(&'static str, Severity, String)> {
+        let snapshot = Snapshot {
+            cluster: Some(cluster),
+            ..Snapshot::default()
+        };
+        scan(&snapshot)
+            .into_iter()
+            .map(|f| (f.check, f.severity, f.detail.unwrap_or_default()))
+            .collect()
+    }
+
+    const HEALTHY: &[(&str, &str)] =
+        &[("main", "3.3.0"), ("worker", "3.3.0"), ("webhook", "3.3.0")];
+
+    #[test]
+    fn a_healthy_cluster_reports_nothing() {
+        assert!(cluster_findings(cluster_of(3, "noeviction", 10, 0, HEALTHY)).is_empty());
+        let no_cluster = Snapshot::default();
+        assert!(scan(&no_cluster).is_empty());
+    }
+
+    #[test]
+    fn redis_that_may_drop_queue_jobs_is_flagged() {
+        assert_eq!(
+            cluster_findings(cluster_of(0, "allkeys-lru", 10, 0, HEALTHY)),
+            vec![("redis_eviction", Severity::Medium, "allkeys-lru".to_owned())]
+        );
+        assert_eq!(
+            cluster_findings(cluster_of(0, "allkeys-lru", 850, 12, HEALTHY)),
+            vec![
+                (
+                    "redis_eviction",
+                    Severity::High,
+                    "allkeys-lru · 12".to_owned()
+                ),
+                ("redis_memory_high", Severity::High, "85%".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn redis_without_a_memory_limit_cannot_evict() {
+        let mut cluster = cluster_of(0, "allkeys-lru", 5_000_000, 0, HEALTHY);
+        cluster.redis.max_memory = 0;
+        assert!(cluster_findings(cluster).is_empty());
+    }
+
+    #[test]
+    fn queue_backlog_grows_from_notice_to_urgent() {
+        let backlog = |waiting| cluster_findings(cluster_of(waiting, "noeviction", 0, 0, HEALTHY));
+        assert!(backlog(99).is_empty());
+        assert_eq!(
+            backlog(100),
+            vec![("queue_backlog", Severity::Medium, "100".to_owned())]
+        );
+        assert_eq!(
+            backlog(1000),
+            vec![("queue_backlog", Severity::High, "1000".to_owned())]
+        );
+    }
+
+    #[test]
+    fn missing_workers_and_mixed_versions_are_urgent() {
+        assert_eq!(
+            cluster_findings(cluster_of(
+                7,
+                "noeviction",
+                0,
+                0,
+                &[("main", "3.3.0"), ("webhook", "3.3.0")]
+            )),
+            vec![("no_workers", Severity::High, "7".to_owned())]
+        );
+        assert_eq!(
+            cluster_findings(cluster_of(
+                0,
+                "noeviction",
+                0,
+                0,
+                &[("main", "3.3.0"), ("worker", "3.2.2")]
+            )),
+            vec![(
+                "version_mismatch",
+                Severity::High,
+                "3.2.2 · 3.3.0".to_owned()
+            )]
+        );
+        // An n8n older than 3 registers nobody: that is not a cluster without workers.
+        assert!(cluster_findings(cluster_of(0, "noeviction", 0, 0, &[])).is_empty());
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 use serde_json::Value;
 
+use crate::cluster::Cluster;
+
 #[derive(Debug, Clone, Default)]
 pub struct Node {
     pub name: String,
@@ -52,6 +54,8 @@ pub struct Snapshot {
     pub users_total: i64,
     pub users_without_mfa: i64,
     pub waiting_executions: i64,
+    /// `None` when no Redis is configured or it could not be read.
+    pub cluster: Option<Cluster>,
 }
 
 impl Workflow {

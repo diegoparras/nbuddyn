@@ -12,6 +12,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+use crate::cluster::Cluster;
 use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::radar::{Finding, Severity};
 
@@ -22,6 +23,7 @@ pub struct Scan {
     pub score: u32,
     pub inventory: Inventory,
     pub findings: Vec<Finding>,
+    pub cluster: Option<Cluster>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -41,6 +43,8 @@ pub struct AppState {
     pub default_lang: Lang,
     pub latest: RwLock<Option<Scan>>,
     pub last_error: RwLock<Option<String>>,
+    /// Why Redis could not be read in the latest scan, if it could not.
+    pub cluster_error: RwLock<Option<String>>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -79,8 +83,46 @@ struct Report {
     lights: Vec<Light>,
     totals: Totals,
     inventory: Inventory,
+    /// Queue, Redis and cluster members; absent when no Redis is configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cluster: Option<ClusterView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cluster_error: Option<String>,
     groups: Vec<Group>,
     ui: UiText,
+}
+
+#[derive(Serialize)]
+struct ClusterView {
+    waiting: i64,
+    active: i64,
+    delayed: i64,
+    main: usize,
+    workers: usize,
+    webhooks: usize,
+    versions: Vec<String>,
+    redis_used_mb: i64,
+    /// 0 means Redis has no memory limit.
+    redis_max_mb: i64,
+    eviction_policy: String,
+}
+
+impl ClusterView {
+    fn of(cluster: &Cluster) -> Self {
+        const MB: i64 = 1024 * 1024;
+        Self {
+            waiting: cluster.queue.waiting,
+            active: cluster.queue.active,
+            delayed: cluster.queue.delayed,
+            main: cluster.count("main"),
+            workers: cluster.count("worker"),
+            webhooks: cluster.count("webhook"),
+            versions: cluster.versions().into_iter().map(str::to_owned).collect(),
+            redis_used_mb: (cluster.redis.used_memory + MB / 2) / MB,
+            redis_max_mb: cluster.redis.max_memory / MB,
+            eviction_policy: cluster.redis.eviction_policy.clone(),
+        }
+    }
 }
 
 /// One annunciator light: an area of the instance and how bad it looks.
@@ -135,6 +177,18 @@ const LIGHTS: &[(&str, &[&str])] = &[
     ("secrets", &["hardcoded_secret"]),
 ];
 
+/// The queue light exists only when Redis is being read.
+const QUEUE_LIGHT: (&str, &[&str]) = (
+    "queue",
+    &[
+        "redis_eviction",
+        "redis_memory_high",
+        "queue_backlog",
+        "no_workers",
+        "version_mismatch",
+    ],
+);
+
 async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>) -> Json<Report> {
     let lang = q
         .lang
@@ -143,10 +197,16 @@ async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>
         .unwrap_or(state.default_lang);
     let scan = state.latest.read().await.clone();
     let error = state.last_error.read().await.clone();
-    Json(build_report(lang, scan, error))
+    let cluster_error = state.cluster_error.read().await.clone();
+    Json(build_report(lang, scan, error, cluster_error))
 }
 
-fn build_report(lang: Lang, scan: Option<Scan>, error: Option<String>) -> Report {
+fn build_report(
+    lang: Lang,
+    scan: Option<Scan>,
+    error: Option<String>,
+    cluster_error: Option<String>,
+) -> Report {
     let available = scan.is_some();
     let scan = scan.unwrap_or_default();
 
@@ -160,8 +220,10 @@ fn build_report(lang: Lang, scan: Option<Scan>, error: Option<String>) -> Report
         }
     }
 
+    let cluster = scan.cluster.as_ref().map(ClusterView::of);
     let lights = LIGHTS
         .iter()
+        .chain(cluster.is_some().then_some(&QUEUE_LIGHT))
         .map(|(key, checks)| {
             let hits: Vec<&Finding> = scan
                 .findings
@@ -210,6 +272,8 @@ fn build_report(lang: Lang, scan: Option<Scan>, error: Option<String>) -> Report
         lights,
         totals,
         inventory: scan.inventory,
+        cluster,
+        cluster_error,
         groups,
         ui: ui_text(lang),
     }
@@ -323,6 +387,7 @@ mod tests {
             score,
             inventory: Inventory::default(),
             findings,
+            cluster: None,
         }
     }
 
@@ -348,7 +413,7 @@ mod tests {
 
     #[test]
     fn report_before_the_first_scan_says_it_is_unavailable() {
-        let report = build_report(Lang::Es, None, Some("connection refused".into()));
+        let report = build_report(Lang::Es, None, Some("connection refused".into()), None);
         assert!(!report.available);
         assert_eq!(report.lang, "es");
         assert_eq!(report.error.as_deref(), Some("connection refused"));
@@ -366,7 +431,7 @@ mod tests {
                 finding("no_error_workflow", Severity::Medium, "a"),
             ],
         );
-        let report = build_report(Lang::Es, Some(scan), None);
+        let report = build_report(Lang::Es, Some(scan), None, None);
 
         let summary: Vec<(&str, usize)> =
             report.groups.iter().map(|g| (g.check, g.count)).collect();
@@ -404,7 +469,7 @@ mod tests {
                 finding("no_error_workflow", Severity::Medium, "a"),
             ],
         );
-        let report = build_report(Lang::En, Some(scan), None);
+        let report = build_report(Lang::En, Some(scan), None, None);
         let lights: Vec<(&str, usize, &str)> = report
             .lights
             .iter()
@@ -422,8 +487,78 @@ mod tests {
     }
 
     #[test]
+    fn cluster_adds_its_view_and_the_queue_light() {
+        use crate::cluster::{Member, Queue, RedisHealth};
+        let member = |kind: &str| Member {
+            kind: kind.into(),
+            host_id: String::new(),
+            version: "3.3.0".into(),
+        };
+        let mut scan = scan_of(
+            90,
+            vec![Finding {
+                check: "redis_eviction",
+                severity: Severity::Medium,
+                workflow: None,
+                node: None,
+                detail: Some("allkeys-lru".into()),
+                active: None,
+            }],
+        );
+        scan.cluster = Some(Cluster {
+            queue: Queue {
+                waiting: 4,
+                active: 2,
+                delayed: 0,
+                failed: 0,
+            },
+            redis: RedisHealth {
+                used_memory: 6_651_904,
+                max_memory: 943_718_400,
+                eviction_policy: "allkeys-lru".into(),
+                evicted_keys: 0,
+            },
+            members: vec![
+                member("main"),
+                member("worker"),
+                member("worker"),
+                member("webhook"),
+            ],
+        });
+        let report = build_report(Lang::Es, Some(scan), None, None);
+
+        let view = report.cluster.as_ref().expect("cluster view");
+        assert_eq!((view.waiting, view.active), (4, 2));
+        assert_eq!((view.main, view.workers, view.webhooks), (1, 2, 1));
+        assert_eq!((view.redis_used_mb, view.redis_max_mb), (6, 900));
+        assert_eq!(view.versions, vec!["3.3.0"]);
+        let queue = report.lights.last().expect("queue light");
+        assert_eq!(
+            (queue.key, queue.count, queue.level),
+            ("queue", 1, "medium")
+        );
+        assert_eq!(
+            report.groups[0].title,
+            "Redis puede descartar trabajos de la cola"
+        );
+    }
+
+    #[test]
+    fn without_redis_there_is_no_queue_light_and_a_failed_read_is_reported() {
+        let report = build_report(
+            Lang::En,
+            Some(scan_of(100, vec![])),
+            None,
+            Some("cannot connect".into()),
+        );
+        assert!(report.cluster.is_none());
+        assert!(report.lights.iter().all(|l| l.key != "queue"));
+        assert_eq!(report.cluster_error.as_deref(), Some("cannot connect"));
+    }
+
+    #[test]
     fn zone_follows_the_score() {
-        let zone = |score| build_report(Lang::En, Some(scan_of(score, vec![])), None).zone;
+        let zone = |score| build_report(Lang::En, Some(scan_of(score, vec![])), None, None).zone;
         assert_eq!(
             (zone(53), zone(59), zone(60), zone(84), zone(85), zone(100)),
             ("risk", "risk", "caution", "caution", "ok", "ok")
@@ -433,7 +568,7 @@ mod tests {
     #[test]
     fn report_serializes_what_the_page_reads() {
         let scan = scan_of(92, vec![finding("repeated_failures", Severity::High, "wf")]);
-        let json = serde_json::to_value(build_report(Lang::Pt, Some(scan), None)).unwrap();
+        let json = serde_json::to_value(build_report(Lang::Pt, Some(scan), None, None)).unwrap();
         assert_eq!(json["groups"][0]["check"], "repeated_failures");
         assert_eq!(json["groups"][0]["severity"], "high");
         assert_eq!(

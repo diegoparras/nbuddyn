@@ -1,5 +1,6 @@
 //! nbuddyn: a tiny, read-only cockpit for self-hosted n8n.
 
+mod cluster;
 mod db;
 mod i18n;
 mod model;
@@ -14,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+use crate::cluster::RedisConfig;
 use crate::i18n::Lang;
 use crate::model::Snapshot;
 use crate::web::{AppState, Inventory, Scan};
@@ -25,6 +27,8 @@ struct Config {
     password: Option<String>,
     interval: Duration,
     lang: Lang,
+    /// `None` leaves the queue and cluster checks out.
+    redis: Option<RedisConfig>,
 }
 
 impl Config {
@@ -54,7 +58,25 @@ impl Config {
                 .ok_or("NBUDDYN_INTERVAL_SECONDS must be a number of seconds, 10 or more")?,
         };
 
+        let redis = match var("NBUDDYN_REDIS_URL") {
+            None => None,
+            Some(url) => {
+                let mut redis = RedisConfig::parse(&url)?;
+                if let Some(prefix) = var("NBUDDYN_BULL_PREFIX") {
+                    redis.bull_prefix = prefix;
+                }
+                if let Some(name) = var("NBUDDYN_QUEUE_NAME") {
+                    redis.queue_name = name;
+                }
+                if let Some(prefix) = var("NBUDDYN_REDIS_KEY_PREFIX") {
+                    redis.key_prefix = prefix;
+                }
+                Some(redis)
+            }
+        };
+
         Ok(Self {
+            redis,
             database_url,
             listen: var("NBUDDYN_LISTEN").unwrap_or_else(|| "0.0.0.0:8787".into()),
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
@@ -81,6 +103,7 @@ async fn main() -> ExitCode {
         default_lang: config.lang,
         latest: RwLock::new(None),
         last_error: RwLock::new(None),
+        cluster_error: RwLock::new(None),
     });
 
     let listener = match TcpListener::bind(&config.listen).await {
@@ -99,6 +122,7 @@ async fn main() -> ExitCode {
     tokio::spawn(scan_forever(
         state.clone(),
         config.database_url,
+        config.redis,
         config.interval,
     ));
 
@@ -116,10 +140,31 @@ async fn main() -> ExitCode {
 
 /// Scans on start and then on every interval. A failed scan keeps the previous
 /// result on screen and records why the new one failed.
-async fn scan_forever(state: Arc<AppState>, database_url: String, interval: Duration) {
+async fn scan_forever(
+    state: Arc<AppState>,
+    database_url: String,
+    redis: Option<RedisConfig>,
+    interval: Duration,
+) {
     loop {
         match db::read_snapshot(&database_url).await {
-            Ok(snapshot) => {
+            Ok(mut snapshot) => {
+                // The database is the report; Redis adds the cluster to it. A
+                // Redis that cannot be read is reported without losing the rest.
+                let cluster_error = match &redis {
+                    None => None,
+                    Some(config) => match cluster::read_cluster(config).await {
+                        Ok(cluster) => {
+                            snapshot.cluster = Some(cluster);
+                            None
+                        }
+                        Err(reason) => {
+                            eprintln!("cluster read failed: {reason}");
+                            Some(reason)
+                        }
+                    },
+                };
+                *state.cluster_error.write().await = cluster_error;
                 let scan = evaluate(&snapshot);
                 println!(
                     "scan ok: score {} with {} findings",
@@ -154,6 +199,7 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
             nodes: snapshot.workflows.iter().map(|w| w.nodes.len()).sum(),
             waiting: snapshot.waiting_executions,
         },
+        cluster: snapshot.cluster.clone(),
         findings,
     }
 }

@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/diegoparras/nbuddyn"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync", "io-util"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
 tokio-postgres = "0.7"
 serde = { version = "1", features = ["derive"] }

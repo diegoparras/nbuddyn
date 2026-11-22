@@ -2,7 +2,7 @@
 
 **A tiny, read-only cockpit for self-hosted n8n.** · [Español](#español) · [Português](#português)
 
-nbuddyn sits next to your n8n, reads its database, and tells you what n8n does not:
+nbuddyn sits next to your n8n, reads its database and its Redis, and tells you what n8n does not:
 which doors are open, what is failing in silence, and what will break.
 
 - **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n.
@@ -12,7 +12,7 @@ which doors are open, what is failing in silence, and what will break.
 nbuddyn is an independent project. It is not affiliated with or endorsed by n8n GmbH.
 It contains no n8n code and does not unlock, replace or bypass any licensed n8n feature.
 
-## What it checks (v0.1)
+## What it checks
 
 | Severity | Check |
 |---|---|
@@ -28,6 +28,21 @@ It contains no n8n code and does not unlock, replace or bypass any licensed n8n 
 | Low | Nodes reading server environment variables |
 | Low | Credentials no workflow uses |
 | Info | Nodes that run system commands |
+
+With Redis configured, it also watches the queue and the cluster:
+
+| Severity | Check |
+|---|---|
+| High | No worker is running |
+| High | Main, workers and webhook processors on different n8n versions |
+| High | Redis almost out of memory (80% of its limit or more) |
+| High / Medium | Executions piling up in the queue (100 waiting, urgent from 1000) |
+| High / Medium | Redis may drop queue jobs: an eviction policy other than `noeviction` (urgent once it has evicted keys) |
+
+The page then shows how many executions are waiting and running, how many workers and
+webhook processors are alive, and Redis' memory. Workers are found through the registry
+n8n 3 keeps in Redis, so there is nothing to list by hand; on older n8n versions the
+member counts stay at zero and the worker check is skipped.
 
 Checks read the saved definition of each workflow. A webhook that validates its caller
 inside the workflow still shows as unauthenticated, because nbuddyn cannot see that logic.
@@ -66,20 +81,27 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 |---|---|---|
 | `NBUDDYN_DATABASE_URL` | required | Connection to n8n's Postgres. Use a read-only user. |
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
+| `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_USER` | `nbuddyn` | User name for the page. |
 | `NBUDDYN_LISTEN` | `0.0.0.0:8787` | Address to listen on. |
 | `NBUDDYN_INTERVAL_SECONDS` | `300` | Seconds between scans (minimum 10). |
 | `NBUDDYN_LANG` | `en` | Default language: `en`, `es` or `pt`. |
 | `NBUDDYN_ALLOW_ANONYMOUS` | unset | `true` removes the login. Only behind another login. |
+| `NBUDDYN_BULL_PREFIX` | `bull` | Set it if n8n uses another `QUEUE_BULL_PREFIX`. |
+| `NBUDDYN_QUEUE_NAME` | `jobs` | The Bull queue n8n enqueues executions on. |
+| `NBUDDYN_REDIS_KEY_PREFIX` | `n8n` | Set it if n8n uses another `N8N_REDIS_KEY_PREFIX`. |
 
-The connection to Postgres is not encrypted in this version, so keep nbuddyn on the same
-private network as the database. `GET /healthz` answers without a login, for health checks.
+nbuddyn sends Redis only read commands (`LLEN`, `ZCARD`, `SMEMBERS`, `MGET`, `INFO`). If your
+Redis has ACLs, a user limited to `+@read +info` on `bull:*` and `n8n:*` is enough.
+
+The connections to Postgres and Redis are not encrypted in this version, so keep nbuddyn on
+the same private network as both. `GET /healthz` answers without a login, for health checks.
 
 ## Status
 
-v0.1 is the radar: one page, one JSON endpoint (`/api/report?lang=es`). Tested against the
-n8n 3.3 database schema. Planned next: alerts, history that survives n8n's pruning,
-queue health (Redis, workers, task runners), and a read-only MCP endpoint.
+One page and one JSON endpoint (`/api/report?lang=es`). Tested against the n8n 3.3 database
+schema and a Redis 7 server. Planned next: task runner health, history that survives n8n's
+pruning, a read-only MCP endpoint, and alerts.
 
 ## Development
 

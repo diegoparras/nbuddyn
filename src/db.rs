@@ -36,6 +36,7 @@ pub async fn read_snapshot(database_url: &str) -> Result<Snapshot, DbError> {
         .await?;
 
     Ok(Snapshot {
+        cluster: None,
         workflows: workflows(&client).await?,
         credentials: credentials(&client).await?,
         error_counts: error_counts(&client).await?,

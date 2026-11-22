@@ -45,7 +45,7 @@
   .brief { flex: 1 1 420px; min-width: 0; }
   h1 { margin: 10px 0 12px; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
   .lead { margin: 0 0 18px; color: var(--soft); max-width: 600px; }
-  .lights { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; max-width: 600px; }
+  .lights { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; max-width: 640px; }
   .light { border: 1px solid var(--line); border-radius: 4px; padding: 10px 6px; text-align: center; font-family: var(--mono); }
   .light .name { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; overflow-wrap: anywhere; }
   .light .count { font-size: 24px; font-weight: 600; }
@@ -55,6 +55,8 @@
 
   .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .totals > div { padding: 14px 0; }
+  .totals + .totals { border-top: 0; }
+  .totals .n small { font-size: 14px; color: var(--muted); font-weight: 400; }
   .totals .n { font-family: var(--mono); font-size: 24px; font-weight: 500; }
   .totals .t { font-size: 13px; color: var(--muted); }
 
@@ -126,6 +128,7 @@
   </section>
 
   <div class="totals" id="totals"></div>
+  <div class="totals" id="cluster" hidden></div>
   <div id="groups"></div>
   <footer id="footer"></footer>
 </main>
@@ -177,6 +180,12 @@
       if (r.error) box.appendChild(el("div", "why", r.error));
       notice.appendChild(box);
     }
+    if (r.cluster_error) {
+      var redisBox = el("div", "notice");
+      redisBox.appendChild(el("div", null, ui.cluster_unavailable));
+      redisBox.appendChild(el("div", "why", r.cluster_error));
+      notice.appendChild(redisBox);
+    }
 
     var zoneClass = r.available ? r.zone : "off";
     var score = $("score");
@@ -215,6 +224,24 @@
         cell.appendChild(el("div", "n " + (t[0] > 0 ? t[2] : ""), t[0]));
         cell.appendChild(el("div", "t", t[1]));
         totals.appendChild(cell);
+      });
+    }
+
+    var cluster = $("cluster");
+    cluster.replaceChildren();
+    cluster.hidden = !(r.available && r.cluster);
+    if (r.available && r.cluster) {
+      var c = r.cluster;
+      var memory = c.redis_max_mb > 0 ? c.redis_used_mb + " / " + c.redis_max_mb + " MB" : c.redis_used_mb + " MB";
+      [[c.waiting, ui.queue_waiting, c.waiting >= 100 ? "caution" : ""],
+       [c.active, ui.queue_active, ""],
+       [c.workers, ui.workers, c.main + c.workers + c.webhooks > 0 && c.workers === 0 ? "risk" : ""],
+       [c.webhooks, ui.webhooks, ""],
+       [memory, ui.redis_memory + (c.redis_max_mb > 0 ? "" : " · " + ui.no_limit), ""]].forEach(function (t) {
+        var cell = el("div");
+        cell.appendChild(el("div", "n " + t[2], t[0]));
+        cell.appendChild(el("div", "t", t[1]));
+        cluster.appendChild(cell);
       });
     }
 

@@ -51,11 +51,18 @@ pub const CHECKS: &[&str] = &[
     "env_access",
     "unused_credential",
     "command_execution",
+    "redis_eviction",
+    "redis_memory_high",
+    "queue_backlog",
+    "no_workers",
+    "version_mismatch",
 ];
 
 /// Heading for a group of `count` findings of one check, such as
 /// "5 MCP servers or chats without authentication".
 pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
+    // Instance-wide conditions read the same however many findings carry them.
+    let same = |text: &'static str| (text, text);
     let (one, many) = match check {
         "open_ai_entry" => (
             lang.pick(
@@ -201,6 +208,31 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
                 "{n} nós executam comandos do sistema",
             ),
         ),
+        "redis_eviction" => same(lang.pick(
+            "Redis may drop jobs from the queue",
+            "Redis puede descartar trabajos de la cola",
+            "O Redis pode descartar trabalhos da fila",
+        )),
+        "redis_memory_high" => same(lang.pick(
+            "Redis is almost out of memory",
+            "Redis está casi sin memoria",
+            "O Redis está quase sem memória",
+        )),
+        "queue_backlog" => same(lang.pick(
+            "Executions are piling up in the queue",
+            "Las ejecuciones se acumulan en la cola",
+            "As execuções estão se acumulando na fila",
+        )),
+        "no_workers" => same(lang.pick(
+            "No worker is running",
+            "No hay ningún worker en marcha",
+            "Nenhum worker está em execução",
+        )),
+        "version_mismatch" => same(lang.pick(
+            "The cluster is running mixed n8n versions",
+            "El cluster corre versiones distintas de n8n",
+            "O cluster está rodando versões diferentes do n8n",
+        )),
         _ => ("", ""),
     };
     if count == 1 {
@@ -272,6 +304,31 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "Expected for some workflows. Make sure only trusted people can edit them.",
             "Es esperable en algunos workflows. Asegurate de que solo gente de confianza pueda editarlos.",
             "É esperado em alguns workflows. Garanta que só pessoas de confiança possam editá-los.",
+        ),
+        "redis_eviction" => lang.pick(
+            "Its memory policy lets it delete keys when it fills up, and queued executions are keys. Set maxmemory-policy to noeviction.",
+            "Su política de memoria le permite borrar claves cuando se llena, y las ejecuciones en cola son claves. Poné maxmemory-policy en noeviction.",
+            "A política de memória permite apagar chaves quando enche, e as execuções na fila são chaves. Defina maxmemory-policy como noeviction.",
+        ),
+        "redis_memory_high" => lang.pick(
+            "Raise its memory limit or find what is filling it before it starts refusing or dropping data.",
+            "Subile el límite de memoria o buscá qué lo está llenando, antes de que empiece a rechazar o descartar datos.",
+            "Aumente o limite de memória ou descubra o que o está enchendo, antes que comece a recusar ou descartar dados.",
+        ),
+        "queue_backlog" => lang.pick(
+            "Workers are not keeping up. Check that they are alive and consider more workers or higher concurrency.",
+            "Los workers no dan abasto. Revisá que estén vivos y considerá más workers o más concurrencia.",
+            "Os workers não estão dando conta. Verifique se estão ativos e considere mais workers ou mais concorrência.",
+        ),
+        "no_workers" => lang.pick(
+            "Queued executions will wait until a worker starts. Check the worker services.",
+            "Las ejecuciones en cola van a esperar hasta que arranque un worker. Revisá los servicios de workers.",
+            "As execuções na fila vão esperar até um worker iniciar. Verifique os serviços de workers.",
+        ),
+        "version_mismatch" => lang.pick(
+            "Main, workers and webhook processors must run the same version. Finish the update on the ones left behind.",
+            "Main, workers y webhooks tienen que correr la misma versión. Terminá la actualización en los que quedaron atrás.",
+            "Main, workers e webhooks precisam rodar a mesma versão. Conclua a atualização nos que ficaram para trás.",
         ),
         _ => "",
     }
@@ -351,6 +408,14 @@ pub struct UiText {
     pub light_failures: &'static str,
     pub light_silent: &'static str,
     pub light_secrets: &'static str,
+    pub light_queue: &'static str,
+    pub queue_waiting: &'static str,
+    pub queue_active: &'static str,
+    pub workers: &'static str,
+    pub webhooks: &'static str,
+    pub redis_memory: &'static str,
+    pub no_limit: &'static str,
+    pub cluster_unavailable: &'static str,
     pub ok: &'static str,
     pub urgent: &'static str,
     pub important: &'static str,
@@ -390,6 +455,26 @@ pub fn ui_text(lang: Lang) -> UiText {
         light_failures: lang.pick("Failures", "Fallos", "Falhas"),
         light_silent: lang.pick("No alert", "Sin aviso", "Sem aviso"),
         light_secrets: lang.pick("Secrets", "Claves", "Chaves"),
+        light_queue: lang.pick("Queue", "Cola", "Fila"),
+        queue_waiting: lang.pick(
+            "waiting in queue",
+            "en espera en la cola",
+            "em espera na fila",
+        ),
+        queue_active: lang.pick("running now", "ejecutándose ahora", "em execução agora"),
+        workers: lang.pick("workers alive", "workers vivos", "workers ativos"),
+        webhooks: lang.pick(
+            "webhook processors alive",
+            "webhooks vivos",
+            "webhooks ativos",
+        ),
+        redis_memory: lang.pick("Redis memory", "memoria de Redis", "memória do Redis"),
+        no_limit: lang.pick("no limit", "sin límite", "sem limite"),
+        cluster_unavailable: lang.pick(
+            "Could not read Redis, so the queue and the cluster are not shown",
+            "No se pudo leer Redis, así que no se muestran la cola ni el cluster",
+            "Não foi possível ler o Redis, então a fila e o cluster não são mostrados",
+        ),
         ok: "OK",
         urgent: lang.pick("Urgent", "Urgente", "Urgente"),
         important: lang.pick("Important", "Importante", "Importante"),
