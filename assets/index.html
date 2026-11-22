@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>nbuddyn</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #16181d; --muted: #5f6672; --line: #dfe2e8;
+    --high: #c8321f; --medium: #b56a00; --low: #2a6fb5; --info: #6b7280; --good: #1f8a4c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a21; --ink: #e8eaee; --muted: #9aa2af; --line: #262b35;
+      --high: #ff6b57; --medium: #f2a93b; --low: #6aaef2; --info: #8b93a1; --good: #4cc27f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); flex: 1; min-width: 180px; }
+  select {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; font: inherit;
+  }
+  .top { display: grid; grid-template-columns: 190px 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 620px) { .top { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .score { text-align: center; }
+  .score .value { font-size: 58px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
+  .stat .n { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
+  .chip { border-radius: 999px; padding: 3px 11px; font-size: 13px; border: 1px solid currentColor; }
+  h2 { font-size: 15px; margin: 22px 0 10px; }
+  .finding { border-left: 4px solid var(--info); margin-bottom: 8px; padding: 11px 14px; }
+  .finding .title { font-weight: 620; }
+  .finding .where { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+  .finding .advice { font-size: 13.5px; margin-top: 6px; }
+  .sev-high { color: var(--high); } .sev-medium { color: var(--medium); }
+  .sev-low { color: var(--low); } .sev-info { color: var(--info); }
+  .finding.sev-high { border-left-color: var(--high); } .finding.sev-medium { border-left-color: var(--medium); }
+  .finding.sev-low { border-left-color: var(--low); }
+  .finding > * { color: var(--ink); } .finding .where { color: var(--muted); }
+  .tag { font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; color: var(--muted); }
+  .notice { border-left: 4px solid var(--high); margin-bottom: 14px; overflow-wrap: anywhere; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 26px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>nbuddyn</h1>
+    <span class="tagline" id="tagline"></span>
+    <label><span class="label" id="langLabel"></span>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="pt">Português</option>
+      </select>
+    </label>
+  </header>
+  <div id="notice"></div>
+  <section class="top">
+    <div class="panel score">
+      <div class="label" id="scoreLabel"></div>
+      <div class="value" id="score">–</div>
+      <div class="label" id="generated"></div>
+    </div>
+    <div class="panel">
+      <div class="grid" id="stats"></div>
+      <div class="chips" id="chips"></div>
+    </div>
+  </section>
+  <h2 id="findingsTitle"></h2>
+  <div id="findings"></div>
+  <footer id="footer"></footer>
+</main>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var stored = null;
+  try { stored = localStorage.getItem("nbuddyn.lang"); } catch (e) {}
+  var lang = stored || (navigator.language || "en").slice(0, 2);
+  if (["en", "es", "pt"].indexOf(lang) < 0) lang = "en";
+  $("lang").value = lang;
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function scoreColor(score) {
+    return score >= 85 ? "var(--good)" : score >= 60 ? "var(--medium)" : "var(--high)";
+  }
+
+  function render(r) {
+    var ui = r.ui;
+    document.documentElement.lang = r.lang;
+    $("tagline").textContent = ui.tagline;
+    $("langLabel").textContent = ui.language + " ";
+    $("scoreLabel").textContent = ui.score;
+    $("findingsTitle").textContent = ui.findings + " (" + r.findings.length + ")";
+    $("footer").textContent = ui.read_only;
+
+    var notice = $("notice");
+    notice.replaceChildren();
+    if (!r.available || r.error) {
+      var box = el("div", "panel notice");
+      box.appendChild(el("div", "title", ui.unavailable));
+      if (r.error) box.appendChild(el("div", "where", r.error));
+      notice.appendChild(box);
+    }
+
+    $("score").textContent = r.available ? r.score : "–";
+    $("score").style.color = r.available ? scoreColor(r.score) : "var(--muted)";
+    $("generated").textContent = r.generated_at
+      ? ui.generated + ": " + new Date(r.generated_at * 1000).toLocaleString(r.lang)
+      : "";
+
+    var stats = $("stats");
+    stats.replaceChildren();
+    [["workflows", r.inventory.workflows], ["active", r.inventory.active],
+     ["credentials", r.inventory.credentials], ["users", r.inventory.users],
+     ["nodes", r.inventory.nodes], ["waiting", r.inventory.waiting]].forEach(function (pair) {
+      var stat = el("div", "stat");
+      stat.appendChild(el("div", "n", pair[1]));
+      stat.appendChild(el("div", "label", ui[pair[0]]));
+      stats.appendChild(stat);
+    });
+
+    var chips = $("chips");
+    chips.replaceChildren();
+    ["high", "medium", "low", "info"].forEach(function (sev) {
+      chips.appendChild(el("span", "chip sev-" + sev, ui[sev] + ": " + r.counts[sev]));
+    });
+
+    var list = $("findings");
+    list.replaceChildren();
+    if (r.available && r.findings.length === 0) {
+      list.appendChild(el("div", "panel", ui.nothing));
+    }
+    r.findings.forEach(function (f) {
+      var card = el("div", "panel finding sev-" + f.severity);
+      var title = el("div", "title", f.title);
+      title.appendChild(el("span", "tag sev-" + f.severity, ui[f.severity]));
+      if (f.active === false) title.appendChild(el("span", "tag", ui.inactive));
+      card.appendChild(title);
+      var where = [f.workflow, f.node, f.detail].filter(Boolean).join("  ›  ");
+      if (where) card.appendChild(el("div", "where", where));
+      card.appendChild(el("div", "advice", f.advice));
+      list.appendChild(card);
+    });
+  }
+
+  function load() {
+    fetch("api/report?lang=" + encodeURIComponent(lang), { credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(render)
+      .catch(function (err) { $("score").textContent = "!"; console.error("nbuddyn", err); });
+  }
+
+  $("lang").addEventListener("change", function (ev) {
+    lang = ev.target.value;
+    try { localStorage.setItem("nbuddyn.lang", lang); } catch (e) {}
+    load();
+  });
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
