@@ -66,6 +66,29 @@ n8n still has, so the history does not start empty.
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
+## Users and security
+
+nbuddyn has its own login page. The administrator in `NBUDDYN_USER` and `NBUDDYN_PASSWORD`
+always exists; more users are added in **Settings** with one of two roles:
+
+- **Administrator**: accepts findings, changes settings, manages instances and users.
+- **Read only**: sees the reports and nothing that changes anything.
+
+What protects the login and the page:
+
+- Passwords of added users are stored only as salted PBKDF2-HMAC-SHA256 hashes
+  (310,000 rounds), never in the clear.
+- After five wrong passwords in a row a name has to wait, longer each time, up to 15 minutes.
+- Sessions live in a cookie the page's scripts cannot read (`HttpOnly`, `SameSite=Strict`,
+  and `Secure` behind https) and end after 12 hours or on sign out.
+- Every response carries a strict Content-Security-Policy that only allows the script and
+  styles shipped inside the page, plus the usual hardening headers; reports are never cached.
+- Anything that changes state needs a header another site cannot send, and an administrator.
+- An **audit log** in Settings records sign-ins, failed sign-ins, accepted findings, and
+  changes to settings, instances and users, with who did each.
+
+Scripts can still send a name and password with HTTP Basic on every API request.
+
 ## What changed
 
 nbuddyn compares every scan with the one before and keeps a log, shown under **Activity**:
@@ -181,7 +204,7 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | Variable | Default | Meaning |
 |---|---|---|
 | `NBUDDYN_DATABASE_URL` | required | n8n's database: `postgres://user:password@host:5432/n8n` (use a read-only user) or `sqlite:/path/to/database.sqlite`. |
-| `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
+| `NBUDDYN_PASSWORD` | required | Password of the first administrator. The report lists your weak points; keep it private. |
 | `NBUDDYN_NAME` | `n8n` | What the first instance is called on the page. |
 | `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
@@ -190,7 +213,7 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
 | `NBUDDYN_TIMEZONE` | the database's | Decides where a day ends, such as `America/Argentina/Buenos_Aires`. |
 | `NBUDDYN_MCP_TOKEN` | unset | Turns on the MCP endpoint at `/mcp` and is the token clients must send. At least 24 characters. |
-| `NBUDDYN_USER` | `nbuddyn` | User name for the page. |
+| `NBUDDYN_USER` | `nbuddyn` | Name of the first administrator. |
 | `NBUDDYN_LISTEN` | `0.0.0.0:8787` | Address to listen on. |
 | `NBUDDYN_INTERVAL_SECONDS` | `300` | Seconds between scans (minimum 10). |
 | `NBUDDYN_LANG` | `en` | Default language: `en`, `es` or `pt`. |

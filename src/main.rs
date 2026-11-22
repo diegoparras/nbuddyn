@@ -1,5 +1,6 @@
 //! nbuddyn: a tiny, read-only cockpit for self-hosted n8n.
 
+mod auth;
 mod cluster;
 mod db;
 mod history;
@@ -145,8 +146,11 @@ async fn main() -> ExitCode {
     }
 
     let state = Arc::new(AppState {
-        user: config.user.clone(),
-        password: config.password.clone(),
+        auth: auth::Auth::new(
+            config.user.clone(),
+            config.password.clone(),
+            config.data_dir.as_deref().map(std::path::PathBuf::from),
+        ),
         mcp_token: config.mcp_token.clone(),
         defaults: config.defaults,
         saved: RwLock::new(saved),

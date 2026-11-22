@@ -238,6 +238,33 @@
   .savebar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
   .savebar .status { margin-right: auto; font-size: 13px; color: var(--red-ink); }
 
+  /* Loading: the shape of what is coming, not a sentence about it. */
+  .sk { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--raised) 25%, #202B38 37%, var(--raised) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+  @keyframes shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+  .skcard { padding: 18px; display: grid; gap: 12px; }
+  .view { animation: arrive 0.18s ease-out; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .preflight { display: flex; flex-wrap: wrap; align-items: center; gap: 20px 32px; padding: 32px 28px; }
+  .preflight h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; }
+  .preflight p { color: var(--soft); max-width: 520px; }
+  .radar { flex: none; width: 96px; height: 96px; }
+  .radar .sweep { transform-origin: 48px 48px; animation: spin 2.4s linear infinite; }
+  .me { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--soft); white-space: nowrap; }
+  .me b { font-weight: 600; color: var(--ink); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Login */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login form { width: min(380px, 100%); display: grid; gap: 14px; padding: 32px 28px; }
+  .login .brand { justify-content: center; font-size: 22px; }
+  .login .eyebrow { text-align: center; margin-bottom: 8px; }
+  .login label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+  .login input { padding: 10px 12px; font-size: 15px; }
+  .login .btn { min-height: 44px; margin-top: 6px; }
+  .login .problem { min-height: 20px; font-size: 14px; color: var(--red-ink); text-align: center; }
+  .login select { justify-self: center; }
+  .shake { animation: shake 0.3s; }
+  @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20; max-width: calc(100vw - 32px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-weight: 500; font-size: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
   footer { margin-top: 28px; font: 12px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
   .printhead { display: none; }
@@ -265,7 +292,7 @@
   @media print {
     :root { --bg: #fff; --surface: #fff; --raised: #f3f4f6; --line: #d5d9e0; --line2: #b9c0cb; --ink: #111827; --soft: #374151; --muted: #4b5563;
             --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff; --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; --blue-bg: #fff; }
-    .top, .fleet, .filters, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
+    .top, .fleet, .filters, .login, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
     .view { margin-bottom: 28px; }
     .printhead { display: block; font: 600 16px var(--mono); margin-bottom: 16px; }
     .gcard, figure, .tile, .todo li { break-inside: avoid; }
@@ -275,6 +302,8 @@
 </style>
 </head>
 <body>
+<div class="login" id="login" hidden></div>
+<div id="app">
 <div class="top">
   <div class="shell">
     <a class="brand" href="#/overview">
@@ -287,6 +316,7 @@
       <span class="sweep" id="sweep"></span>
       <button type="button" class="iconbtn" id="rescan"></button>
       <button type="button" class="iconbtn" id="export"></button>
+      <span class="me" id="me" hidden></span>
       <select class="lang" id="lang"><option value="es">ES</option><option value="en">EN</option><option value="pt">PT</option></select>
     </div>
   </div>
@@ -294,7 +324,12 @@
 <main class="shell">
   <div class="printhead" id="printhead"></div>
   <div id="notice"></div>
-  <section class="view" id="view-overview"></section>
+  <section class="view" id="view-overview">
+    <div class="card hero"><div class="dial"><span class="sk" style="width:220px;height:120px;border-radius:120px 120px 8px 8px"></span></div>
+      <div class="brief"><span class="sk" style="width:160px;height:12px"></span><span class="sk" style="width:80%;height:34px;margin:14px 0"></span><span class="sk" style="width:60%;height:16px"></span></div></div>
+    <div class="lights"><span class="sk" style="height:66px"></span><span class="sk" style="height:66px"></span><span class="sk" style="height:66px"></span><span class="sk" style="height:66px"></span></div>
+    <div class="card skcard"><span class="sk" style="width:30%;height:14px"></span><span class="sk" style="height:16px"></span><span class="sk" style="width:85%;height:16px"></span><span class="sk" style="width:70%;height:16px"></span></div>
+  </section>
   <section class="view" id="view-findings" hidden></section>
   <section class="view" id="view-cluster" hidden></section>
   <section class="view" id="view-activity" hidden></section>
@@ -302,6 +337,7 @@
   <section class="view" id="view-settings" hidden></section>
   <footer id="footer"></footer>
 </main>
+</div>
 <script>
 (function () {
   "use strict";
@@ -316,7 +352,8 @@
     download: "M8 2.5v8m0 0L5 7.5m3 3l3-3M3 13.5h10",
     chevron: "M6 3.5L10.5 8 6 12.5",
     search: "M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10zm3.5-1.5l3 3",
-    x: "M4 4l8 8M12 4l-8 8"
+    x: "M4 4l8 8M12 4l-8 8",
+    exit: "M6.5 13.5H3.5v-11h3M10 5l3 3-3 3M13 8H6.5"
   };
 
   function stored(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -330,7 +367,7 @@
     range: Number(stored("nbuddyn.range")) || 30,
     filter: { severity: "all", query: "", light: null },
     open: {}, expanded: {},
-    busy: false, scanning: false, printing: false
+    busy: false, scanning: false, printing: false, me: null
   };
   if (["en", "es", "pt"].indexOf(state.lang) < 0) state.lang = "en";
   if (RANGES.indexOf(state.range) < 0) state.range = 30;
@@ -385,7 +422,81 @@
     return load().then(function () { if (state.view === "settings") renderSettings(); });
   }
   function get(path) {
-    return fetch(path, { credentials: "same-origin" }).then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); });
+    return fetch(path, { credentials: "same-origin" }).then(function (res) {
+      if (res.status === 401) showLogin();
+      return res.ok ? res.json() : Promise.reject(res.status);
+    });
+  }
+
+  /* A card shaped like the content that is on its way. */
+  function skeleton(lines) {
+    var card = h("div", "card skcard");
+    card.appendChild(h("span", { class: "sk", style: "width:28%;height:14px" }));
+    for (var i = 0; i < (lines || 4); i++) card.appendChild(h("span", { class: "sk", style: "width:" + [100, 88, 94, 72, 81][i % 5] + "%;height:16px" }));
+    return card;
+  }
+  /* What a view shows while the first sweep of an instance has not finished. */
+  function waiting(ui) {
+    var r = state.report, failed = !!r.error;
+    var radar = svg("svg", { "class": "radar", viewBox: "0 0 96 96", "aria-hidden": "true" });
+    radar.appendChild(svg("circle", { cx: 48, cy: 48, r: 44, fill: "none", stroke: "var(--line2)", "stroke-width": 1.5 }));
+    radar.appendChild(svg("circle", { cx: 48, cy: 48, r: 26, fill: "none", stroke: "var(--line)", "stroke-width": 1.5 }));
+    if (!failed) radar.appendChild(svg("path", { "class": "sweep", d: "M48 48V4A44 44 0 0 1 92 48Z", fill: "var(--amber)", opacity: 0.18 }));
+    radar.appendChild(svg("circle", { cx: 48, cy: 48, r: 3, fill: failed ? "var(--red)" : "var(--amber)" }));
+    return h("div", "card preflight", radar,
+      h("div", null, h("h1", null, failed ? ui.scan_failed_title : ui.first_scan_title), h("p", null, failed ? ui.scan_failed_text : ui.first_scan_text)));
+  }
+
+  /* ---------- Login ---------- */
+  var LOGIN = {
+    en: { tag: "Flight report for n8n", user: "User name", password: "Password", enter: "Sign in", wrong: "Wrong user name or password.", wait: "Too many tries. Try again in {n} s.", down: "nbuddyn is not answering. Try again in a moment." },
+    es: { tag: "Informe de vuelo de n8n", user: "Usuario", password: "Clave", enter: "Entrar", wrong: "Usuario o clave incorrectos.", wait: "Demasiados intentos. Probá de nuevo en {n} s.", down: "nbuddyn no responde. Probá de nuevo en un momento." },
+    pt: { tag: "Relatório de voo do n8n", user: "Usuário", password: "Senha", enter: "Entrar", wrong: "Usuário ou senha incorretos.", wait: "Muitas tentativas. Tente de novo em {n} s.", down: "O nbuddyn não responde. Tente de novo em um momento." }
+  };
+  function showLogin() {
+    var box = $("login");
+    if (!box.hidden) return;
+    var t = LOGIN[state.lang];
+    var user = h("input", { type: "text", autocomplete: "username", autocapitalize: "none", spellcheck: false, required: true });
+    var password = h("input", { type: "password", autocomplete: "current-password", required: true });
+    var problem = h("div", { class: "problem", role: "alert" });
+    var enter = h("button", { type: "submit", class: "btn primary", text: t.enter });
+    var langs = h("select", { class: "lang", "aria-label": "Language" });
+    [["es", "Español"], ["en", "English"], ["pt", "Português"]].forEach(function (o) { langs.appendChild(h("option", { value: o[0], text: o[1] })); });
+    langs.value = state.lang;
+    langs.addEventListener("change", function () { state.lang = langs.value; store("nbuddyn.lang", state.lang); box.hidden = true; showLogin(); });
+    var brand = document.querySelector(".top .brand").cloneNode(true);
+    brand.removeAttribute("href");
+    var form = h("form", "card", brand, h("div", "eyebrow", t.tag),
+      h("label", null, t.user, user), h("label", null, t.password, password), enter, problem, langs);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      enter.disabled = true;
+      problem.textContent = "";
+      fetch("api/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Nbuddyn": "1" }, body: JSON.stringify({ user: user.value, password: password.value }) })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (body) { return { status: res.status, body: body }; }); })
+        .then(function (answer) {
+          enter.disabled = false;
+          if (answer.body.ok) {
+            box.hidden = true;
+            box.replaceChildren();
+            $("app").hidden = false;
+            return start();
+          }
+          problem.textContent = answer.status === 429 ? t.wait.replace("{n}", answer.body.wait || 30) : (answer.status === 401 ? t.wrong : t.down);
+          form.classList.remove("shake");
+          void form.offsetWidth;
+          form.classList.add("shake");
+          password.value = "";
+          password.focus();
+        })
+        .catch(function () { enter.disabled = false; problem.textContent = t.down; });
+    });
+    $("app").hidden = true;
+    fill(box, form);
+    box.hidden = false;
+    document.title = "nbuddyn";
+    user.focus();
   }
   function send(path, body) {
     return fetch(path, {
@@ -468,6 +579,7 @@
     var nav = $("nav");
     nav.replaceChildren();
     [["overview", ui.nav_overview], ["findings", ui.nav_findings, open], ["cluster", ui.nav_cluster], ["activity", ui.nav_activity], ["history", ui.history], ["settings", ui.settings]].forEach(function (t) {
+      if (t[0] === "settings" && state.me && state.me.role !== "admin") return;
       var link = h("a", { href: "#/" + t[0], text: t[1] });
       if (t[0] === state.view) link.setAttribute("aria-current", "page");
       if (t[2]) link.appendChild(h("span", "badge" + (urgent ? " high" : ""), t[2]));
@@ -483,6 +595,14 @@
     fill($("export"), icon("download"), h("span", "label", ui.export));
     $("export").title = ui.export;
     $("footer").textContent = ui.read_only;
+    var me = $("me");
+    me.hidden = !state.me || state.me.open;
+    if (!me.hidden) {
+      var out = h("button", { type: "button", class: "iconbtn", title: ui.logout, "aria-label": ui.logout, on: { click: function () {
+        send("api/logout").then(function () { state.me = null; state.report = null; showLogin(); });
+      } } }, icon("exit"));
+      fill(me, h("b", { title: ui["role_" + state.me.role], text: state.me.user }), out);
+    }
     $("printhead").textContent = "nbuddyn · " + ui.tagline + (r.generated_at ? " · " + new Date(r.generated_at * 1000).toLocaleString(r.lang) : "");
 
     var notice = $("notice");
@@ -548,7 +668,7 @@
             : h("div", "how", ui.first_scan)));
       });
     }
-    if (!r.available) return fill(view, fleet, hero);
+    if (!r.available) return fill(view, fleet, waiting(ui));
 
     var lights = h("div", "lights");
     r.lights.forEach(function (l) {
@@ -646,7 +766,7 @@
 
   function renderFindings() {
     var r = state.report, ui = r.ui, view = $("view-findings"), f = state.filter;
-    if (!r.available) return fill(view, h("header", null, h("h1", null, ui.nav_findings)), h("div", "card empty", h("p", null, ui.loading)));
+    if (!r.available) return fill(view, h("header", null, h("h1", null, ui.nav_findings)), waiting(ui));
     var light = f.light && r.lights.filter(function (l) { return l.key === f.light; })[0];
     var query = f.query.trim().toLowerCase();
     if (f.severity === "accepted" && !r.accepted.length) f.severity = "all";
@@ -682,7 +802,7 @@
           r.writable ? h("div", "act", h("button", { type: "button", class: "btn small", text: ui.restore, on: { click: function () {
             send(at("api/unaccept"), { key: a.key }).then(function () { toast(ui.restored_toast); load(); });
           } } })) : null);
-        if (a.note || a.at) li.appendChild(h("div", "note", a.note ? "“" + a.note + "”" : "", a.at ? h("small", null, new Date(a.at * 1000).toLocaleDateString(r.lang)) : null));
+        if (a.note || a.at) li.appendChild(h("div", "note", a.note ? "“" + a.note + "”" : "", a.at ? h("small", null, (a.by ? a.by + " · " : "") + new Date(a.at * 1000).toLocaleDateString(r.lang)) : null));
         rows.appendChild(li);
       });
       body.appendChild(h("div", "card", h("div", "advice", h("span", null, ui.accepted_help)), rows.childNodes.length ? rows : h("div", "empty", h("p", null, ui.no_results))));
@@ -757,7 +877,7 @@
   function renderCluster() {
     var r = state.report, ui = r.ui, view = $("view-cluster"), c = r.cluster;
     var head = h("header", null, h("h1", null, ui.nav_cluster));
-    if (!r.available) return fill(view, head, h("div", "card empty", h("p", null, ui.loading)));
+    if (!r.available) return fill(view, head, waiting(ui));
     var tiles = null, off = null;
     if (c) {
       tiles = h("div", "tiles",
@@ -798,7 +918,7 @@
   function renderActivity() {
     var r = state.report, ui = r.ui, act = state.activity, view = $("view-activity");
     var head = h("header", null, h("h1", null, ui.nav_activity));
-    if (!act) return fill(view, head, h("div", "card empty", h("p", null, ui.loading)));
+    if (!act) return fill(view, head, skeleton(5));
     if (!act.enabled) return fill(view, head, h("div", "card empty", h("p", null, ui.history_off)));
     var isFinding = function (e) { return e.kind.indexOf("finding_") === 0; };
     var chips = h("div", "filters");
@@ -933,7 +1053,7 @@
   function renderHistory() {
     var r = state.report, ui = r.ui, hist = state.history, view = $("view-history");
     var title = h("h1", null, ui.history);
-    if (!hist) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.loading)));
+    if (!hist) return fill(view, h("header", null, title), skeleton(3), h("div", { style: "height:16px" }), skeleton(6));
     if (!hist.enabled) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.history_off)));
     view.classList.remove("loading");
     var ranges = h("div", { class: "ranges", role: "group", "aria-label": ui.history });
@@ -995,6 +1115,69 @@
                   ["sec_cluster", [["redis_url", "text"], ["runner_urls", "area"]]],
                   ["sec_general", [["lang", "select"], ["interval_seconds", "number"], ["history_days", "number"]]]];
 
+  /* Who can come in, and with what role. */
+  function usersCard(ui) {
+    var card = h("div", "card", h("h2", null, ui.users)), body = h("div", null, h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:70%;height:16px" })));
+    card.appendChild(body);
+    var draw = function () {
+      get("api/users").then(function (users) {
+        body.replaceChildren();
+        users.forEach(function (u) {
+          var row = h("div", "inst", h("div", "who", u.name, h("small", null, ui["role_" + u.role] + (u.fixed ? " · " + ui.users_env_note : ""))));
+          if (!u.fixed) row.appendChild(h("button", { type: "button", class: "btn small", text: ui.remove_instance, on: { click: function () {
+            if (!window.confirm(ui.user_remove_confirm + "\n\n" + u.name)) return;
+            send("api/users/remove", { user: u.name }).then(function (answer) { toast(answer.ok ? ui.user_removed : ui.save_failed); draw(); });
+          } } }));
+          body.appendChild(row);
+        });
+        if (!state.me || !state.me.can_store_users) return body.appendChild(h("p", { class: "hint", style: "margin:0;padding:14px 18px", text: ui.users_need_store }));
+        var name = h("input", { type: "text", placeholder: ui.set_user, "aria-label": ui.set_user, autocomplete: "off", spellcheck: false, maxLength: 40 });
+        var password = h("input", { type: "password", placeholder: ui.set_password, "aria-label": ui.set_password, autocomplete: "new-password" });
+        var role = h("select", { "aria-label": ui.users });
+        [["viewer", ui.role_viewer], ["admin", ui.role_admin]].forEach(function (o) { role.appendChild(h("option", { value: o[0], text: o[1] })); });
+        var add = h("button", { type: "submit", class: "btn", text: ui.add });
+        var form = h("form", "addform", name, password, role, add);
+        [name, password].forEach(function (input) { input.addEventListener("input", function () { state.busy = true; }); });
+        form.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          add.disabled = true;
+          send("api/users", { user: name.value, password: password.value, role: role.value }).then(function (answer) {
+            add.disabled = false;
+            if (!answer.ok) {
+              var wrong = (answer.wrong || [])[0];
+              (wrong === "password" ? password : name).focus();
+              return toast(wrong ? ui.invalid + ": " + (ui["set_" + wrong] || wrong) : ui.save_failed);
+            }
+            state.busy = false;
+            toast(ui.user_added);
+            draw();
+          });
+        });
+        body.appendChild(form);
+        body.appendChild(h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.help_users }));
+      }).catch(function () {});
+    };
+    draw();
+    return card;
+  }
+  /* Who did what inside nbuddyn. */
+  function auditCard(ui) {
+    var card = h("div", "card", h("h2", null, ui.audit)), body = h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:80%;height:16px" }));
+    card.appendChild(body);
+    get("api/audit").then(function (entries) {
+      if (!entries.length) return body.replaceWith(h("div", "empty", h("p", null, ui.audit_empty)));
+      var list = h("ul", "events");
+      entries.slice(0, 40).forEach(function (e) {
+        var when = new Date(e.at * 1000);
+        list.appendChild(h("li", null,
+          h("time", { dateTime: when.toISOString(), style: "flex-basis:120px", text: when.toLocaleString(state.lang, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }),
+          h("div", "what", h("b", null, e.user || "–"), " " + (ui["act_" + e.action] || e.action))));
+      });
+      body.replaceWith(list);
+    }).catch(function () {});
+    return card;
+  }
+
   /* The list of instances, with a form to add one and a button to remove each. */
   function instancesCard(s, ui) {
     var r = state.report, card = h("div", "card", h("h2", null, ui.instances));
@@ -1043,7 +1226,7 @@
 
   function renderSettings() {
     var ui = state.report.ui, view = $("view-settings");
-    fill(view, h("header", null, h("h1", null, ui.settings)), h("div", "card empty", h("p", null, ui.loading)));
+    if (!view.querySelector("form")) fill(view, h("header", null, h("h1", null, ui.settings)), h("div", "settings stack", skeleton(3), skeleton(5)));
     return get(at("api/settings")).then(function (s) {
       var status = h("span", { class: "status", role: "status" });
       var save = h("button", { type: "submit", class: "btn primary", text: ui.save, hidden: !s.writable });
@@ -1080,6 +1263,7 @@
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });
+      if (state.me && !state.me.open) { form.appendChild(usersCard(ui)); form.appendChild(auditCard(ui)); }
       form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.env_only + ". " + ui.read_only })));
       form.appendChild(h("div", "savebar", status, save));
       form.addEventListener("submit", function (ev) {
@@ -1137,6 +1321,7 @@
     if (!state.report) return;
     renderChrome();
     if (state.view === "history") renderHistory();
+    if (state.view === "settings" && state.me && state.me.role !== "admin") return void (location.hash = "#/overview");
     if (state.view === "settings") renderSettings();
     if (changed) window.scrollTo(0, 0);
   }
@@ -1209,10 +1394,17 @@
     resizing = setTimeout(function () { if (state.report && state.view === "history") renderHistory(); }, 150);
   });
 
-  show();
-  load().then(show);
+  function start() {
+    return get("api/me").then(function (me) {
+      state.me = me;
+      $("app").hidden = false;
+      show();
+      return load().then(show);
+    }).catch(function (status) { if (status !== 401) console.error("nbuddyn", status); });
+  }
+  start();
   /* An open form is left alone: a refresh would wipe what is being typed. */
-  setInterval(function () { if (!state.busy && !state.scanning && !state.printing) load(); }, 60000);
+  setInterval(function () { if (state.me && !state.busy && !state.scanning && !state.printing) load(); }, 60000);
 })();
 </script>
 </body>

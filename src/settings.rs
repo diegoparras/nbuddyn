@@ -51,6 +51,9 @@ pub struct Accepted {
     pub note: String,
     /// Seconds since 1970.
     pub at: u64,
+    /// Who accepted it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub by: String,
 }
 
 /// Another n8n, added from the page.
@@ -390,13 +393,14 @@ impl Saved {
             .map(|i| &mut i.accepted)
     }
 
-    pub fn accept(&mut self, id: &str, key: &str, note: &str, at: u64) {
+    pub fn accept(&mut self, id: &str, key: &str, note: &str, at: u64, by: &str) {
         if let Some(accepted) = self.accepted_mut(id) {
             accepted.retain(|a| a.key != key);
             accepted.push(Accepted {
                 key: key.to_owned(),
                 note: note.trim().chars().take(NOTE_MAX).collect(),
                 at,
+                by: by.to_owned(),
             });
         }
     }
@@ -695,9 +699,15 @@ mod tests {
         let mut saved = Saved::default()
             .with_instance("n2", "Clientes", "sqlite:/n8n/database.sqlite", &d)
             .unwrap();
-        saved.accept(PRIMARY, "a|high|w1||", "public on purpose", 10);
-        saved.accept(PRIMARY, "a|high|w1||", "  reviewed with the client  ", 20);
-        saved.accept("n2", "b|low|||", "", 30);
+        saved.accept(PRIMARY, "a|high|w1||", "public on purpose", 10, "ana");
+        saved.accept(
+            PRIMARY,
+            "a|high|w1||",
+            "  reviewed with the client  ",
+            20,
+            "ana",
+        );
+        saved.accept("n2", "b|low|||", "", 30, "ana");
         assert_eq!(saved.accepted_in(PRIMARY).len(), 1);
         assert_eq!(
             saved.accepted_in(PRIMARY)[0].note,
@@ -720,7 +730,7 @@ mod tests {
             n8n_url: Some("https://n8n.example.com".into()),
             ..Saved::default()
         };
-        saved.accept(PRIMARY, "k", "", 5);
+        saved.accept(PRIMARY, "k", "", 5, "ana");
         store.save(&saved).unwrap();
         assert_eq!(store.load().unwrap(), saved);
         std::fs::write(dir.join(FILE), "{ nope").unwrap();

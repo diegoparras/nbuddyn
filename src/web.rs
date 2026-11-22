@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Query, Request, State};
+use axum::extract::{Extension, Query, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -13,6 +13,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, RwLock};
 
+use crate::auth::{self, Auth, Identity, Refusal, Role};
 use crate::cluster::Cluster;
 use crate::history::{self, History};
 use crate::i18n::{self, ui_text, Lang, UiText};
@@ -42,9 +43,8 @@ pub struct Inventory {
 }
 
 pub struct AppState {
-    pub user: String,
-    /// `None` means the page is open to anyone who can reach it.
-    pub password: Option<String>,
+    /// Users, sessions and the record of who did what.
+    pub auth: Auth,
     /// Starting values from the environment.
     pub defaults: Defaults,
     /// What was saved from the page, including the accepted findings.
@@ -122,7 +122,6 @@ impl AppState {
 
 pub fn router(state: Arc<AppState>) -> Router {
     let protected = Router::new()
-        .route("/", get(index))
         .route("/api/report", get(report))
         .route("/api/history", get(history_report))
         .route("/api/activity", get(activity))
@@ -132,14 +131,71 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/rescan", post(rescan))
         .route("/api/instances", post(instance_add))
         .route("/api/instances/remove", post(instance_remove))
+        .route("/api/users", get(users_list).post(user_save))
+        .route("/api/users/remove", post(user_remove))
+        .route("/api/audit", get(audit_list))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        // The page itself holds no data; everything it shows needs a login.
+        .route("/", get(index))
+        .route("/api/me", get(me))
+        .route("/api/login", post(login))
+        .route("/api/logout", post(logout))
         // Checks its own token: MCP clients send a bearer token, not a login.
         .route("/mcp", post(mcp::post).fallback(mcp::other))
         .merge(protected)
+        .layer(middleware::from_fn(security_headers))
         .with_state(state)
+}
+
+/// What the browser is allowed to do with the page: run only the script and
+/// the styles that ship inside it, talk only to nbuddyn, and never be framed.
+static CONTENT_POLICY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use sha2::Digest;
+    let page = include_str!("../assets/index.html");
+    let inline = |open: &str, close: &str| {
+        let body = page
+            .split_once(open)
+            .and_then(|(_, rest)| rest.split_once(close))
+            .map_or("", |(body, _)| body);
+        let digest = sha2::Sha256::digest(body.as_bytes());
+        base64::engine::general_purpose::STANDARD.encode(digest)
+    };
+    format!(
+        "default-src 'none'; script-src 'sha256-{}'; style-src-elem 'sha256-{}'; \
+         style-src-attr 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
+         base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        inline("<script>", "</script>"),
+        inline("<style>", "</style>"),
+    )
+});
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let is_api = request.uri().path() != "/";
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    let mut set = |name: &'static str, value: &str| {
+        if let Ok(value) = value.parse() {
+            headers.insert(name, value);
+        }
+    };
+    set("content-security-policy", &CONTENT_POLICY);
+    set("x-content-type-options", "nosniff");
+    set("x-frame-options", "DENY");
+    set("referrer-policy", "no-referrer");
+    set(
+        "permissions-policy",
+        "camera=(), microphone=(), geolocation=()",
+    );
+    set("strict-transport-security", "max-age=31536000");
+    set("cross-origin-opener-policy", "same-origin");
+    if is_api {
+        // Reports name weak points; no proxy or browser should keep a copy.
+        set("cache-control", "no-store");
+    }
+    response
 }
 
 async fn index() -> Html<&'static str> {
@@ -477,6 +533,8 @@ struct AcceptedView {
     note: String,
     /// Seconds since 1970.
     at: u64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    by: String,
 }
 
 #[derive(Serialize)]
@@ -590,9 +648,16 @@ const QUEUE_LIGHT: (&str, &[&str]) = (
 /// The runners light exists only when runners are being asked.
 const RUNNERS_LIGHT: (&str, &[&str]) = ("runners", &["runner_down"]);
 
-async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>) -> Json<Report> {
+async fn report(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    Query(q): Query<ReportQuery>,
+) -> Json<Report> {
     let lang = q.lang.as_deref().map(Lang::parse);
-    Json(read_report(&state, lang, q.instance.as_deref()).await)
+    let mut report = read_report(&state, lang, q.instance.as_deref()).await;
+    // Only an administrator is offered the buttons that change things.
+    report.writable &= who.is_admin();
+    Json(report)
 }
 
 /// What a report needs besides the scan.
@@ -685,6 +750,7 @@ fn compose_report(
                 title: i18n::group_title(lang, f.check, 1),
                 note: decision.map(|a| a.note.clone()).unwrap_or_default(),
                 at: decision.map_or(0, |a| a.at),
+                by: decision.map(|a| a.by.clone()).unwrap_or_default(),
                 item: Item::of(f),
                 key,
             }
@@ -852,8 +918,16 @@ struct SettingsView {
 
 async fn settings_view(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     Query(q): Query<Which>,
-) -> Json<SettingsView> {
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(read_settings(&state, q).await).into_response()
+}
+
+async fn read_settings(state: &AppState, q: Which) -> SettingsView {
     let (_, instance) = state.pick(q.instance.as_deref()).await;
     let values = state
         .saved
@@ -861,7 +935,7 @@ async fn settings_view(
         .await
         .form(&state.defaults, &instance.id)
         .unwrap_or_default();
-    Json(SettingsView {
+    SettingsView {
         writable: state.settings_store.is_some(),
         error: state.settings_error.clone(),
         values,
@@ -873,7 +947,7 @@ async fn settings_view(
         },
         mcp: state.mcp_token.is_some(),
         version: env!("CARGO_PKG_VERSION"),
-    })
+    }
 }
 
 /// The answer to anything that changes what nbuddyn keeps.
@@ -917,9 +991,11 @@ const WRITE_HEADER: &str = "x-nbuddyn";
 async fn save_with(
     state: &AppState,
     headers: &HeaderMap,
+    who: &Identity,
+    (action, detail): (&str, &str),
     change: impl FnOnce(&Saved) -> Result<Saved, Vec<&'static str>>,
 ) -> Response {
-    if !headers.contains_key(WRITE_HEADER) {
+    if !headers.contains_key(WRITE_HEADER) || !who.is_admin() {
         return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
     }
     let Some(store) = &state.settings_store else {
@@ -937,18 +1013,20 @@ async fn save_with(
     }
     *saved = next;
     drop(saved);
+    state.auth.record(now(), &who.name, action, detail);
     state.rescan.notify_one();
     Saving::done()
 }
 
 async fn settings_save(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     Query(q): Query<Which>,
     headers: HeaderMap,
     Json(form): Json<settings::Form>,
 ) -> Response {
     let id = q.instance.unwrap_or_else(|| PRIMARY.to_owned());
-    save_with(&state, &headers, |saved| {
+    save_with(&state, &headers, &who, ("settings", &form.name), |saved| {
         saved.with_form(&id, &form, &state.defaults)
     })
     .await
@@ -964,6 +1042,7 @@ struct NewInstance {
 
 async fn instance_add(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     headers: HeaderMap,
     Json(new): Json<NewInstance>,
 ) -> Response {
@@ -972,19 +1051,29 @@ async fn instance_add(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let id = format!("n{:x}", nanos & 0xffff_ffff_ffff);
-    save_with(&state, &headers, |saved| {
-        saved.with_instance(&id, &new.name, &new.database_url, &state.defaults)
-    })
+    save_with(
+        &state,
+        &headers,
+        &who,
+        ("instance_add", &new.name),
+        |saved| saved.with_instance(&id, &new.name, &new.database_url, &state.defaults),
+    )
     .await
 }
 
 async fn instance_remove(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     Query(q): Query<Which>,
     headers: HeaderMap,
 ) -> Response {
     let id = q.instance.unwrap_or_default();
-    save_with(&state, &headers, |saved| saved.without_instance(&id)).await
+    let (_, instance) = state.pick(Some(&id)).await;
+    let act = ("instance_remove", instance.name.as_str());
+    save_with(&state, &headers, &who, act, |saved| {
+        saved.without_instance(&id)
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -996,10 +1085,14 @@ struct Decision {
 
 async fn accept(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     Query(q): Query<Which>,
     headers: HeaderMap,
     Json(decision): Json<Decision>,
 ) -> Response {
+    if !who.is_admin() {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
     let (_, instance) = state.pick(q.instance.as_deref()).await;
     // Only something the latest scan actually found can be accepted.
     let known = state
@@ -1014,9 +1107,10 @@ async fn accept(
         return Saving::refused(StatusCode::NOT_FOUND, Vec::new(), None);
     }
     let now = now();
-    save_with(&state, &headers, |saved| {
+    let act = ("accept", decision.key.as_str());
+    save_with(&state, &headers, &who, act, |saved| {
         let mut next = saved.clone();
-        next.accept(&instance.id, &decision.key, &decision.note, now);
+        next.accept(&instance.id, &decision.key, &decision.note, now, &who.name);
         Ok(next)
     })
     .await
@@ -1024,12 +1118,14 @@ async fn accept(
 
 async fn unaccept(
     State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
     Query(q): Query<Which>,
     headers: HeaderMap,
     Json(decision): Json<Decision>,
 ) -> Response {
     let id = q.instance.unwrap_or_else(|| PRIMARY.to_owned());
-    save_with(&state, &headers, |saved| {
+    let act = ("unaccept", decision.key.as_str());
+    save_with(&state, &headers, &who, act, |saved| {
         let mut next = saved.clone();
         next.unaccept(&id, &decision.key);
         Ok(next)
@@ -1046,50 +1142,268 @@ async fn rescan(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
     Saving::done()
 }
 
-async fn require_login(
-    State(state): State<Arc<AppState>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let Some(password) = state.password.as_deref() else {
-        return next.run(request).await;
-    };
-    if credentials_match(request.headers(), &state.user, password) {
-        return next.run(request).await;
-    }
-    (
-        StatusCode::UNAUTHORIZED,
-        [(
-            header::WWW_AUTHENTICATE,
-            r#"Basic realm="nbuddyn", charset="UTF-8""#,
-        )],
-        "401",
-    )
-        .into_response()
+const SESSION_COOKIE: &str = "nbuddyn_session";
+
+fn session_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())?
+        .split(';')
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(name, _)| *name == SESSION_COOKIE)
+        .map(|(_, token)| token)
 }
 
-fn credentials_match(headers: &HeaderMap, user: &str, password: &str) -> bool {
-    let Some(encoded) = headers
+/// The name and password of an `Authorization: Basic` header, for scripts.
+fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
+    let encoded = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Basic "))
-    else {
-        return false;
-    };
-    let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded.trim()) else {
-        return false;
-    };
-    let expected = format!("{user}:{password}");
-    constant_time_eq(&decoded, expected.as_bytes())
+        .and_then(|v| v.strip_prefix("Basic "))?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .ok()?;
+    let text = String::from_utf8(decoded).ok()?;
+    let (name, password) = text.split_once(':')?;
+    Some((name.to_owned(), password.to_owned()))
 }
 
-/// Compares without leaking, through timing, how many leading bytes matched.
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+/// Checks a password off the async threads, because it is slow on purpose.
+async fn check_password(
+    state: &Arc<AppState>,
+    name: String,
+    password: String,
+) -> Result<Identity, Refusal> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || state.auth.check(&name, &password, now()))
+        .await
+        .unwrap_or(Err(Refusal::Wrong))
 }
+
+/// Who a request comes from: a session opened on the login page, a name and
+/// password sent by a script, or anyone at all when nbuddyn runs open.
+async fn identify(state: &Arc<AppState>, headers: &HeaderMap) -> Option<Identity> {
+    if state.auth.open() {
+        return Some(state.auth.anonymous());
+    }
+    if let Some(identity) = session_token(headers).and_then(|t| state.auth.session(t, now())) {
+        return Some(identity);
+    }
+    let (name, password) = basic_credentials(headers)?;
+    check_password(state, name, password).await.ok()
+}
+
+async fn require_login(
+    State(state): State<Arc<AppState>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    match identify(&state, request.headers()).await {
+        Some(identity) => {
+            request.extensions_mut().insert(identity);
+            next.run(request).await
+        }
+        // No `WWW-Authenticate`: the page shows its own login, not the browser's.
+        None => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct Me {
+    user: String,
+    role: Role,
+    /// True when nbuddyn runs without a login.
+    open: bool,
+    /// Whether users can be added.
+    can_store_users: bool,
+}
+
+async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    match identify(&state, &headers).await {
+        None => StatusCode::UNAUTHORIZED.into_response(),
+        Some(who) => Json(Me {
+            user: who.name,
+            role: who.role,
+            open: state.auth.open(),
+            can_store_users: state.auth.can_store(),
+        })
+        .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct Login {
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    password: String,
+}
+
+#[derive(Serialize)]
+struct LoginRefused {
+    ok: bool,
+    /// Seconds to wait before trying again, after too many wrong passwords.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wait: Option<u64>,
+}
+
+async fn login(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(form): Json<Login>,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let name: String = form.user.trim().chars().take(64).collect();
+    match check_password(&state, name.clone(), form.password).await {
+        Ok(who) => {
+            let token = state.auth.open_session(who.clone(), now());
+            state.auth.record(now(), &who.name, "login", "");
+            // `Secure` only when the browser reached us over https, or the
+            // cookie would never come back on a plain local install.
+            let https = headers
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+            let cookie = format!(
+                "{SESSION_COOKIE}={token}; Path=/; Max-Age={}; HttpOnly; SameSite=Strict{}",
+                state.auth.session_seconds(),
+                if https { "; Secure" } else { "" }
+            );
+            ([(header::SET_COOKIE, cookie)], Saving::done()).into_response()
+        }
+        Err(refusal) => {
+            state.auth.record(now(), &name, "login_failed", "");
+            let (status, wait) = match refusal {
+                Refusal::Wrong => (StatusCode::UNAUTHORIZED, None),
+                Refusal::Wait(seconds) => (StatusCode::TOO_MANY_REQUESTS, Some(seconds)),
+            };
+            (status, Json(LoginRefused { ok: false, wait })).into_response()
+        }
+    }
+}
+
+async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Some(token) = session_token(&headers) {
+        if let Some(who) = state.auth.session(token, now()) {
+            state.auth.record(now(), &who.name, "logout", "");
+        }
+        state.auth.close_session(token);
+    }
+    let gone = format!("{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict");
+    ([(header::SET_COOKIE, gone)], Saving::done()).into_response()
+}
+
+impl From<(String, Role)> for UserView {
+    fn from((name, role): (String, Role)) -> Self {
+        Self {
+            name,
+            role,
+            created: 0,
+            fixed: true,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct UserView {
+    name: String,
+    role: Role,
+    created: u64,
+    /// True for the administrator from the environment, who cannot be removed.
+    fixed: bool,
+}
+
+async fn users_list(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let stored = state.auth.users().into_iter().map(|u| UserView {
+        name: u.name,
+        role: u.role,
+        created: u.created,
+        fixed: false,
+    });
+    let list: Vec<UserView> = state.auth.fixed_user().into_iter().chain(stored).collect();
+    Json(list).into_response()
+}
+
+#[derive(Deserialize)]
+struct NewUser {
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    password: String,
+    role: Role,
+}
+
+async fn user_save(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(new): Json<NewUser>,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) || !who.is_admin() {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
+    let shared = state.clone();
+    let name = new.user.trim().to_owned();
+    let saved = {
+        let name = name.clone();
+        tokio::task::spawn_blocking(move || {
+            shared.auth.save_user(&name, &new.password, new.role, now())
+        })
+        .await
+        .unwrap_or(Err("store"))
+    };
+    match saved {
+        Ok(()) => {
+            state.auth.record(now(), &who.name, "user_add", &name);
+            Saving::done()
+        }
+        Err(field) => Saving::refused(StatusCode::UNPROCESSABLE_ENTITY, vec![field], None),
+    }
+}
+
+#[derive(Deserialize)]
+struct UserName {
+    #[serde(default)]
+    user: String,
+}
+
+async fn user_remove(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(target): Json<UserName>,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) || !who.is_admin() {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
+    if !state.auth.remove_user(&target.user) {
+        return Saving::refused(StatusCode::NOT_FOUND, Vec::new(), None);
+    }
+    state
+        .auth
+        .record(now(), &who.name, "user_remove", &target.user);
+    Saving::done()
+}
+
+async fn audit_list(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(state.auth.audit(200)).into_response()
+}
+
+pub use auth::constant_time_eq;
 
 #[cfg(test)]
 mod tests {
@@ -1129,23 +1443,29 @@ mod tests {
     }
 
     #[test]
-    fn login_accepts_only_the_exact_user_and_password() {
-        assert!(credentials_match(
-            &basic("nbuddyn", "s3cret"),
-            "nbuddyn",
-            "s3cret"
-        ));
-        assert!(!credentials_match(
-            &basic("nbuddyn", "s3cre"),
-            "nbuddyn",
-            "s3cret"
-        ));
-        assert!(!credentials_match(
-            &basic("admin", "s3cret"),
-            "nbuddyn",
-            "s3cret"
-        ));
-        assert!(!credentials_match(&HeaderMap::new(), "nbuddyn", "s3cret"));
+    fn scripts_can_send_a_name_and_password_and_the_page_sends_a_cookie() {
+        assert_eq!(
+            basic_credentials(&basic("ana", "s3:cret")),
+            Some(("ana".to_owned(), "s3:cret".to_owned()))
+        );
+        assert_eq!(basic_credentials(&HeaderMap::new()), None);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "theme=dark; nbuddyn_session=abc123; other=1"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(session_token(&headers), Some("abc123"));
+        assert_eq!(session_token(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn the_page_only_runs_the_script_and_styles_it_ships() {
+        let policy = CONTENT_POLICY.as_str();
+        assert!(policy.starts_with("default-src 'none'; script-src 'sha256-"));
+        assert!(policy.contains("frame-ancestors 'none'"));
+        assert!(!policy.contains("script-src 'unsafe-inline'"));
     }
 
     #[test]
@@ -1369,6 +1689,7 @@ mod tests {
             key: door.key(),
             note: "público a propósito".into(),
             at: 99,
+            by: "ana".into(),
         });
         let after = compose_report(Lang::Es, Some(scan), None, None, &extras);
 
