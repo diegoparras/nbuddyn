@@ -62,7 +62,9 @@ jobs:
               -e DB_POSTGRESDB_DATABASE=n8n "n8nio/n8n:${{ matrix.n8n }}"
           fi
           for attempt in $(seq 1 60); do
-            if curl -fs http://localhost:5678/healthz > /dev/null; then echo "n8n is up"; exit 0; fi
+            # Readiness, not liveness: n8n answers /healthz before it has
+            # finished building its database.
+            if curl -fs http://localhost:5678/healthz/readiness > /dev/null; then echo "n8n is ready"; exit 0; fi
             sleep 3
           done
           docker logs n8n | tail -40
