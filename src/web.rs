@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::cluster::Cluster;
+use crate::history::{self, History};
 use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::radar::{Finding, Severity};
 use crate::runners::RunnerProbe;
@@ -47,12 +48,18 @@ pub struct AppState {
     pub last_error: RwLock<Option<String>>,
     /// Why Redis could not be read in the latest scan, if it could not.
     pub cluster_error: RwLock<Option<String>>,
+    /// Whether nbuddyn was given a place to keep its own history.
+    pub history_enabled: bool,
+    pub history: RwLock<Option<Arc<History>>>,
+    /// Why the history could not be updated in the latest scan, if it could not.
+    pub history_error: RwLock<Option<String>>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/api/report", get(report))
+        .route("/api/history", get(history_report))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -68,6 +75,39 @@ async fn index() -> Html<&'static str> {
 #[derive(Deserialize)]
 struct ReportQuery {
     lang: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    days: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct HistoryReport {
+    /// False when nbuddyn has no data directory, so it remembers nothing.
+    enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(flatten)]
+    view: history::View,
+}
+
+/// Days shown when the page does not ask for a span.
+const DEFAULT_SPAN: u32 = 30;
+/// The longest span one request can ask for.
+const MAX_SPAN: u32 = 366;
+
+async fn history_report(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<HistoryQuery>,
+) -> Json<HistoryReport> {
+    let span = q.days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
+    let history = state.history.read().await.clone();
+    Json(HistoryReport {
+        enabled: state.history_enabled,
+        error: state.history_error.read().await.clone(),
+        view: history.map(|h| h.view(span)).unwrap_or_default(),
+    })
 }
 
 #[derive(Serialize)]

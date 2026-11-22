@@ -76,13 +76,49 @@
   .where div { padding: 1px 0; }
   .tag { border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-left: 6px; font-size: 11px; }
   summary { cursor: pointer; color: var(--amber); padding: 6px 0; min-height: 32px; }
+  h2.plain { color: var(--ink); flex-wrap: wrap; margin-top: 44px; }
+  .ranges { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 4px; padding: 2px; margin-left: auto; }
+  .ranges button { background: none; border: 0; color: var(--muted); padding: 0 12px; min-height: 32px; letter-spacing: 0; text-transform: none; }
+  .ranges button[aria-pressed="true"] { background: var(--line); color: var(--ink); }
+  #history .totals { margin-top: 12px; }
+  #history.loading figure, #history.loading table { opacity: 0.5; }
+  figure { margin: 26px 0 0; position: relative; }
+  figcaption { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-weight: 400; color: var(--soft); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  .chart { display: block; width: 100%; }
+  .chart text { font: 11px var(--mono); fill: var(--muted); }
+  .chart .grid { stroke: var(--line); stroke-width: 1; }
+  .chart .end { fill: var(--ink); font-size: 12px; font-weight: 600; }
+  .tip { position: absolute; z-index: 2; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+  .tip .when { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-bottom: 2px; }
+  .tip b { font-weight: 600; margin-right: 6px; }
+  .tip .key { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 6px; }
+  .tip span { color: var(--soft); }
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14px; }
+  th { text-align: left; font: 500 12px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; padding-right: 0; padding-left: 12px; }
+  td.num { white-space: nowrap; }
+  td.bad { color: var(--red-ink); }
+  .daytable { margin-top: 10px; font-size: 13px; }
+  .daytable table { margin-top: 4px; max-width: 520px; }
+  .note { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .morerows { background: none; border: 0; color: var(--amber); padding: 6px 0; margin-top: 4px; }
+  @media (max-width: 560px) {
+    .optional { display: none; }
+    th { font-size: 11px; letter-spacing: 0; vertical-align: bottom; }
+    th.num, td.num { padding-left: 8px; }
+  }
   footer { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
 
   @media print {
     :root { --bg: #fff; --panel: #fff; --line: #c9ced6; --ink: #111827; --soft: #374151; --muted: #4b5563;
             --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff;
             --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; }
-    .langs, .export { display: none; }
+    .langs, .export, .ranges, .tip, .morerows { display: none; }
+    tr[hidden] { display: table-row; }
+    figure { break-inside: avoid; }
     details[data-more] > summary { display: none; }
     .group { break-inside: avoid; }
   }
@@ -130,6 +166,22 @@
   <div class="totals" id="totals"></div>
   <div class="totals" id="cluster" hidden></div>
   <div id="groups"></div>
+  <section id="history" hidden>
+    <h2 class="plain"><span id="historyTitle"></span><div class="ranges" role="group" id="ranges"></div></h2>
+    <div id="historyNotice"></div>
+    <div class="totals" id="historyTotals"></div>
+    <figure>
+      <figcaption><span id="runsTitle"></span><span class="legend" id="runsLegend"></span></figcaption>
+      <svg class="chart" id="runsChart" role="img"></svg>
+    </figure>
+    <figure>
+      <figcaption><span id="scoreTitle"></span></figcaption>
+      <svg class="chart" id="scoreChart" role="img"></svg>
+    </figure>
+    <details class="daytable"><summary id="dayTableTitle"></summary><div id="dayTable"></div></details>
+    <div id="workflowTable"></div>
+    <div class="note" id="historyNote"></div>
+  </section>
   <footer id="footer"></footer>
 </main>
 <script>
@@ -290,12 +342,286 @@
     });
   }
 
+  var SVG = "http://www.w3.org/2000/svg";
+  var SERIES = { ok: "#4A8FE8", failed: "#E85D3F", canceled: "#6B7A8C" };
+  var RANGES = [7, 30, 90];
+  var range = 30;
+  try { range = Number(localStorage.getItem("nbuddyn.range")) || 30; } catch (e) {}
+  if (RANGES.indexOf(range) < 0) range = 30;
+  var lastUi = null;
+  var lastHistory = null;
+
+  function svg(tag, attrs, text) {
+    var node = document.createElementNS(SVG, tag);
+    Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    if (text !== undefined) node.textContent = String(text);
+    return node;
+  }
+
+  function compact(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+    if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "K";
+    return n.toLocaleString(lang);
+  }
+
+  function dayLabel(day, long) {
+    var date = new Date(day + "T00:00:00");
+    return date.toLocaleDateString(lang, long ? { weekday: "short", day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+  }
+
+  /* A round number at or above the largest value, so the axis reads cleanly. */
+  function niceTop(value) {
+    if (value <= 4) return 4;
+    var unit = Math.pow(10, Math.floor(Math.log10(value)));
+    var steps = [1, 2, 4, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * unit >= value) return steps[i] * unit;
+    return 10 * unit;
+  }
+
+  function percent(part, whole) {
+    if (!whole) return "–";
+    var p = 100 * part / whole;
+    return (p > 0 && p < 1 ? "<1" : Math.round(p)) + "%";
+  }
+
+  /* A column with a rounded top and a square foot on the baseline. */
+  function columnPath(x, y, w, h, round) {
+    var r = round ? Math.min(4, w / 2, h) : 0;
+    return "M" + x + " " + (y + h) + "V" + (y + r) + "a" + r + " " + r + " 0 0 1 " + r + " " + -r +
+      "H" + (x + w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r + "V" + (y + h) + "Z";
+  }
+
+  /* Shared frame: gridlines, y ticks, three x labels, and one hover band per day. */
+  function frame(chart, days, top, ticks, height, right, tipRows) {
+    var width = Math.max(280, Math.floor(chart.getBoundingClientRect().width));
+    var m = { l: 40, r: right, t: 10, b: 24 };
+    var plotW = width - m.l - m.r, plotH = height - m.t - m.b;
+    var band = plotW / days.length;
+    chart.replaceChildren();
+    chart.setAttribute("viewBox", "0 0 " + width + " " + height);
+    chart.setAttribute("height", height);
+    var y = function (v) { return m.t + plotH - plotH * v / top; };
+    ticks.forEach(function (t) {
+      chart.appendChild(svg("line", { "class": "grid", x1: m.l, x2: m.l + plotW, y1: y(t) + 0.5, y2: y(t) + 0.5 }));
+      chart.appendChild(svg("text", { x: m.l - 8, y: y(t) + 4, "text-anchor": "end" }, compact(t)));
+    });
+    var marks = days.length > 2 ? [0, Math.floor((days.length - 1) / 2), days.length - 1] : days.map(function (_, i) { return i; });
+    marks.forEach(function (i, k) {
+      var anchor = k === 0 ? "start" : (k === marks.length - 1 ? "end" : "middle");
+      var x = k === 0 ? m.l : (k === marks.length - 1 ? m.l + plotW : m.l + band * (i + 0.5));
+      chart.appendChild(svg("text", { x: x, y: height - 6, "text-anchor": anchor }, dayLabel(days[i].day)));
+    });
+    chart.appendChild(svg("rect", { x: m.l, y: m.t, width: plotW, height: plotH, fill: "transparent" }));
+    var glow = svg("rect", { y: m.t, height: plotH, width: Math.max(1, band), fill: "var(--ink)", opacity: 0, "pointer-events": "none" });
+    chart.appendChild(glow);
+    var geometry = { m: m, plotW: plotW, plotH: plotH, band: band, y: y, x: function (i) { return m.l + band * i; } };
+    var figure = chart.parentNode;
+    var tip = figure.querySelector(".tip") || figure.appendChild(el("div", "tip"));
+    tip.hidden = true;
+    var hide = function () { tip.hidden = true; glow.setAttribute("opacity", 0); };
+    chart.onpointerleave = hide;
+    chart.onpointermove = function (ev) {
+      var box = chart.getBoundingClientRect();
+      var i = Math.floor((ev.clientX - box.left - m.l) / band);
+      if (i < 0 || i >= days.length) return hide();
+      glow.setAttribute("x", geometry.x(i));
+      glow.setAttribute("opacity", 0.06);
+      tip.replaceChildren(el("div", "when", dayLabel(days[i].day, true)));
+      tipRows(days[i]).forEach(function (row) {
+        var line = el("div");
+        var key = el("i", "key");
+        key.style.background = row[0];
+        line.appendChild(key);
+        line.appendChild(el("b", null, row[1]));
+        line.appendChild(el("span", null, row[2]));
+        tip.appendChild(line);
+      });
+      tip.hidden = false;
+      var left = ev.clientX - box.left + 14;
+      if (left + tip.offsetWidth > box.width) left = ev.clientX - box.left - tip.offsetWidth - 14;
+      tip.style.left = Math.max(0, left) + "px";
+      tip.style.top = (chart.offsetTop + m.t) + "px";
+    };
+    return geometry;
+  }
+
+  function drawRuns(h, ui) {
+    var chart = $("runsChart");
+    var peak = Math.max.apply(null, h.days.map(function (d) { return (d.ok || 0) + (d.failed || 0) + (d.canceled || 0); }));
+    var top = niceTop(peak);
+    var g = frame(chart, h.days, top, [0, top / 2, top], 200, 34, function (d) {
+      var rows = [[SERIES.ok, (d.ok || 0).toLocaleString(lang), ui.runs_ok], [SERIES.failed, (d.failed || 0).toLocaleString(lang), ui.runs_failed]];
+      if (d.canceled) rows.push([SERIES.canceled, d.canceled.toLocaleString(lang), ui.runs_canceled]);
+      return rows;
+    });
+    var w = Math.max(1, Math.min(24, g.band - 2));
+    var gap = w >= 4 ? 2 : 0;
+    h.days.forEach(function (d, i) {
+      var x = g.x(i) + (g.band - w) / 2;
+      var parts = [["ok", d.ok || 0], ["failed", d.failed || 0], ["canceled", d.canceled || 0]].filter(function (p) { return p[1] > 0; });
+      var base = g.m.t + g.plotH;
+      parts.forEach(function (p, k) {
+        var height = Math.max(1, g.plotH * p[1] / top - (k > 0 ? gap : 0));
+        base -= height + (k > 0 ? gap : 0);
+        chart.appendChild(svg("path", { d: columnPath(x, base, w, height, k === parts.length - 1), fill: SERIES[p[0]], "pointer-events": "none" }));
+      });
+    });
+    chart.setAttribute("aria-label", ui.runs_title + ": " + (h.totals.ok || 0) + " " + ui.runs_ok + ", " + (h.totals.failed || 0) + " " + ui.runs_failed);
+
+    var legend = $("runsLegend");
+    legend.replaceChildren();
+    [["ok", ui.runs_ok], ["failed", ui.runs_failed]].concat(h.totals.canceled ? [["canceled", ui.runs_canceled]] : []).forEach(function (s) {
+      var item = el("span");
+      var swatch = el("i");
+      swatch.style.background = SERIES[s[0]];
+      item.appendChild(swatch);
+      item.appendChild(document.createTextNode(s[1]));
+      legend.appendChild(item);
+    });
+  }
+
+  function drawScore(h, ui) {
+    var chart = $("scoreChart");
+    var g = frame(chart, h.days, 100, [0, 50, 100], 140, 34, function (d) {
+      return [[SERIES.ok, d.score === undefined ? "–" : d.score, ui.col_score.toLowerCase()]];
+    });
+    var path = "", pen = false, last = null;
+    h.days.forEach(function (d, i) {
+      if (d.score === undefined) { pen = false; return; }
+      var x = g.x(i) + g.band / 2, y = g.y(d.score);
+      path += (pen ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+      pen = true;
+      last = { x: x, y: y, score: d.score };
+    });
+    if (path) chart.appendChild(svg("path", { d: path, fill: "none", stroke: SERIES.ok, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", "pointer-events": "none" }));
+    if (last) {
+      chart.appendChild(svg("circle", { cx: last.x, cy: last.y, r: 4, fill: SERIES.ok, stroke: "var(--bg)", "stroke-width": 2, "pointer-events": "none" }));
+      chart.appendChild(svg("text", { "class": "end", x: last.x + 9, y: last.y + 4 }, last.score));
+    }
+    chart.setAttribute("aria-label", ui.score_title + (last ? ": " + last.score + "/100" : ""));
+  }
+
+  function table(headers, rows) {
+    var t = el("table");
+    var head = t.appendChild(el("thead")).appendChild(el("tr"));
+    headers.forEach(function (hd) { head.appendChild(el("th", hd[1], hd[0])); });
+    var body = t.appendChild(el("tbody"));
+    rows.forEach(function (cells) {
+      var tr = body.appendChild(el("tr"));
+      cells.forEach(function (c, i) { tr.appendChild(el("td", (headers[i][1] + " " + (c[1] || "")).trim(), c[0])); });
+    });
+    return t;
+  }
+
+  function renderHistory() {
+    var h = lastHistory, ui = lastUi;
+    var section = $("history");
+    section.hidden = !(h && ui && h.enabled);
+    if (section.hidden) return;
+    section.classList.remove("loading");
+    $("historyTitle").textContent = ui.history;
+    $("runsTitle").textContent = ui.runs_title;
+    $("scoreTitle").textContent = ui.score_title;
+    $("dayTableTitle").textContent = ui.table_by_day;
+
+    var ranges = $("ranges");
+    ranges.setAttribute("aria-label", ui.history);
+    ranges.replaceChildren();
+    RANGES.forEach(function (n) {
+      var b = el("button", null, n + " " + ui.days);
+      b.type = "button";
+      b.setAttribute("data-range", n);
+      b.setAttribute("aria-pressed", String(n === range));
+      ranges.appendChild(b);
+    });
+
+    var notice = $("historyNotice");
+    notice.replaceChildren();
+    if (h.error) {
+      var box = el("div", "notice");
+      box.appendChild(el("div", null, ui.history_unavailable));
+      box.appendChild(el("div", "why", h.error));
+      notice.appendChild(box);
+    }
+
+    var total = (h.totals.ok || 0) + (h.totals.failed || 0) + (h.totals.canceled || 0);
+    var totals = $("historyTotals");
+    totals.replaceChildren();
+    [[compact(total), ui.runs_total, ""], [compact(h.totals.ok || 0), ui.runs_ok, ""],
+     [compact(h.totals.failed || 0), ui.runs_failed, h.totals.failed ? "risk" : ""],
+     [percent(h.totals.failed || 0, total), ui.failure_rate, ""]].forEach(function (t) {
+      var cell = el("div");
+      cell.appendChild(el("div", "n " + t[2], t[0]));
+      cell.appendChild(el("div", "t", t[1]));
+      totals.appendChild(cell);
+    });
+
+    if (h.days.length) { drawRuns(h, ui); drawScore(h, ui); }
+
+    $("dayTable").replaceChildren(table(
+      [[ui.col_day, ""], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_score, "num"]],
+      h.days.slice().reverse().map(function (d) {
+        return [[dayLabel(d.day, true)], [(d.ok || 0).toLocaleString(lang)], [(d.failed || 0).toLocaleString(lang), d.failed ? "bad" : ""], [d.score === undefined ? "–" : d.score]];
+      })));
+
+    var holder = $("workflowTable");
+    holder.replaceChildren();
+    if (h.workflows.length === 0) {
+      holder.appendChild(el("p", "note", ui.history_empty));
+    } else {
+      var t = table(
+        [[ui.col_workflow, ""], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"], [ui.col_last, "num optional"]],
+        h.workflows.map(function (w) {
+          var runs = (w.ok || 0) + (w.failed || 0) + (w.canceled || 0);
+          return [[w.name], [runs.toLocaleString(lang)], [(w.failed || 0).toLocaleString(lang), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)], [dayLabel(w.last_day)]];
+        }));
+      holder.appendChild(t);
+      var rows = t.querySelectorAll("tbody tr");
+      if (rows.length > 10) {
+        for (var i = 10; i < rows.length; i++) rows[i].hidden = true;
+        var more = el("button", "morerows", "+ " + (rows.length - 10) + " " + ui.more);
+        more.type = "button";
+        more.addEventListener("click", function () {
+          Array.prototype.forEach.call(rows, function (r) { r.hidden = false; });
+          more.remove();
+        });
+        holder.appendChild(more);
+      }
+    }
+    $("historyNote").textContent = (h.since ? ui.history_since + " " + dayLabel(h.since, true) + ". " : "") + ui.history_note;
+  }
+
+  function loadHistory() {
+    $("history").classList.add("loading");
+    fetch("api/history?days=" + range, { credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (h) { lastHistory = h; renderHistory(); })
+      .catch(function (err) { console.error("nbuddyn", err); });
+  }
+
   function load() {
     fetch("api/report?lang=" + encodeURIComponent(lang), { credentials: "same-origin" })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(render)
+      .then(function (r) { lastUi = r.ui; render(r); renderHistory(); })
       .catch(function (err) { console.error("nbuddyn", err); });
+    loadHistory();
   }
+
+  $("ranges").addEventListener("click", function (ev) {
+    var next = Number(ev.target.getAttribute && ev.target.getAttribute("data-range"));
+    if (!next || next === range) return;
+    range = next;
+    try { localStorage.setItem("nbuddyn.range", String(range)); } catch (e) {}
+    Array.prototype.forEach.call($("ranges").children, function (b) {
+      b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-range")) === range));
+    });
+    loadHistory();
+  });
+  var resizing = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizing);
+    resizing = setTimeout(renderHistory, 150);
+  });
 
   $("langs").addEventListener("click", function (ev) {
     var next = ev.target.getAttribute && ev.target.getAttribute("data-lang");

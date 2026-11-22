@@ -54,6 +54,17 @@ n8n keeps no record of external task runners in its database or in Redis, so nbu
 asks them directly. Each runner container already answers `GET /healthz` on port 5680
 for this purpose.
 
+## Its own history
+
+n8n deletes old executions, and can be told not to save the successful ones at all.
+nbuddyn counts every execution once as it finishes and keeps the totals: per day and
+per workflow, how many succeeded, failed or were canceled, plus the score of each day.
+The page shows the last 7, 30 or 90 days. On its first scan nbuddyn counts whatever
+n8n still has, so the history does not start empty.
+
+Only totals are kept, in one small JSON file. No execution data is read or stored.
+A workflow that was deleted stays in the history under its last known name.
+
 Checks read the saved definition of each workflow. A webhook that validates its caller
 inside the workflow still shows as unauthenticated, because nbuddyn cannot see that logic.
 
@@ -82,6 +93,7 @@ docker build -t nbuddyn .
 docker run -d --name nbuddyn -p 8787:8787 \
   -e NBUDDYN_DATABASE_URL=postgres://nbuddyn:choose-a-password@n8n_postgres:5432/n8n \
   -e NBUDDYN_PASSWORD=choose-a-login-password \
+  -v nbuddyn_data:/data \
   nbuddyn
 ```
 
@@ -93,6 +105,9 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |
+| `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history file lives. Mount a volume there, or the history is lost with the container. Unset outside the image, which turns the history off. |
+| `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
+| `NBUDDYN_TIMEZONE` | the database's | Decides where a day ends, such as `America/Argentina/Buenos_Aires`. |
 | `NBUDDYN_USER` | `nbuddyn` | User name for the page. |
 | `NBUDDYN_LISTEN` | `0.0.0.0:8787` | Address to listen on. |
 | `NBUDDYN_INTERVAL_SECONDS` | `300` | Seconds between scans (minimum 10). |
@@ -112,9 +127,8 @@ nbuddyn on the same private network as them. `GET /healthz` answers without a lo
 
 ## Status
 
-One page and one JSON endpoint (`/api/report?lang=es`). Tested against the n8n 3.3 database
-schema and a Redis 7 server. Planned next: history that survives n8n's pruning, a read-only MCP
-endpoint, and alerts.
+One page and two JSON endpoints (`/api/report?lang=es` and `/api/history?days=30`). Tested against the n8n 3.3 database
+schema and a Redis 7 server. Planned next: a read-only MCP endpoint, and alerts.
 
 ## Development
 
