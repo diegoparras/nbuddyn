@@ -27,7 +27,7 @@ pub async fn read_snapshot(database_url: &str) -> Result<Snapshot, DbError> {
             &client,
             r#"select count(*) from "user" u
                where not u.disabled
-                 and not coalesce((to_jsonb(u)->>'mfaEnabled')::boolean, false)"#,
+                 and not coalesce(u."mfaEnabled", false)"#,
         )
         .await?,
         waiting_executions: count(

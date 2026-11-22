@@ -38,8 +38,14 @@ Create a read-only user in n8n's Postgres (once):
 
 ```sql
 CREATE ROLE nbuddyn LOGIN PASSWORD 'choose-a-password';
-GRANT pg_read_all_data TO nbuddyn;
+GRANT SELECT (id, name, active, "isArchived", nodes, settings) ON workflow_entity TO nbuddyn;
+GRANT SELECT (id, name, type) ON credentials_entity TO nbuddyn;
+GRANT SELECT (id, "workflowId", status, "startedAt", "createdAt", "deletedAt") ON execution_entity TO nbuddyn;
+GRANT SELECT (disabled, "mfaEnabled") ON "user" TO nbuddyn;
 ```
+
+These grants cover only the columns nbuddyn reads. The role cannot read stored
+credentials, password hashes or execution data.
 
 Build and run:
 
