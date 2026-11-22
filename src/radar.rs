@@ -19,12 +19,14 @@ pub enum Severity {
 }
 
 impl Severity {
-    fn weight(self) -> u32 {
+    /// The most one kind of problem at this severity can take off the score,
+    /// as a fraction of what is left.
+    fn max_cost(self) -> f64 {
         match self {
-            Severity::High => 15,
-            Severity::Medium => 5,
-            Severity::Low => 1,
-            Severity::Info => 0,
+            Severity::High => 0.20,
+            Severity::Medium => 0.08,
+            Severity::Low => 0.03,
+            Severity::Info => 0.0,
         }
     }
 }
@@ -315,25 +317,33 @@ fn on_node(
     }
 }
 
-/// 100 means nothing to report. Each check can cost at most `PER_CHECK_CAP`
-/// points, so twelve workflows missing an error workflow do not zero the score.
+/// 100 means nothing to report.
+///
+/// Findings are grouped by check and severity. Each group removes a share of
+/// the remaining score: the first finding costs the most and every further one
+/// of the same kind costs less, so twelve workflows with the same gap weigh
+/// about as much as five. Shares multiply, so the score falls with every new
+/// kind of problem but never collapses to zero.
 pub fn score(findings: &[Finding]) -> u32 {
-    const PER_CHECK_CAP: u32 = 25;
-    let mut checks: Vec<&str> = findings.iter().map(|f| f.check).collect();
-    checks.sort_unstable();
-    checks.dedup();
-    let penalty: u32 = checks
+    /// How much of a group's cost is still unspent after each finding.
+    const REPEAT_DECAY: f64 = 0.6;
+
+    let mut groups: Vec<(&str, Severity, i32)> = Vec::new();
+    for f in findings {
+        match groups
+            .iter_mut()
+            .find(|(c, s, _)| *c == f.check && *s == f.severity)
+        {
+            Some(group) => group.2 += 1,
+            None => groups.push((f.check, f.severity, 1)),
+        }
+    }
+
+    let remaining: f64 = groups
         .iter()
-        .map(|check| {
-            findings
-                .iter()
-                .filter(|f| f.check == *check)
-                .map(|f| f.severity.weight())
-                .sum::<u32>()
-                .min(PER_CHECK_CAP)
-        })
-        .sum();
-    100u32.saturating_sub(penalty)
+        .map(|(_, severity, count)| 1.0 - severity.max_cost() * (1.0 - REPEAT_DECAY.powi(*count)))
+        .product();
+    (100.0 * remaining).round() as u32
 }
 
 #[cfg(test)]
@@ -487,19 +497,77 @@ mod tests {
         assert_eq!(found[2].detail.as_deref(), Some("Idle (smtp)"));
     }
 
-    #[test]
-    fn score_is_capped_per_check() {
-        assert_eq!(score(&[]), 100);
-        let many: Vec<Finding> = (0..12)
+    fn repeated(check: &'static str, severity: Severity, count: usize) -> Vec<Finding> {
+        (0..count)
             .map(|i| Finding {
-                check: "no_error_workflow",
-                severity: Severity::Medium,
+                check,
+                severity,
                 workflow: Some(format!("w{i}")),
                 node: None,
                 detail: None,
                 active: Some(true),
             })
+            .collect()
+    }
+
+    #[test]
+    fn score_is_full_with_nothing_to_report_and_ignores_informational_findings() {
+        assert_eq!(score(&[]), 100);
+        assert_eq!(
+            score(&repeated("command_execution", Severity::Info, 21)),
+            100
+        );
+    }
+
+    #[test]
+    fn more_of_the_same_problem_costs_less_each_time() {
+        let one = score(&repeated("no_error_workflow", Severity::Medium, 1));
+        let five = score(&repeated("no_error_workflow", Severity::Medium, 5));
+        let twelve = score(&repeated("no_error_workflow", Severity::Medium, 12));
+        assert_eq!((one, five, twelve), (97, 93, 92));
+    }
+
+    #[test]
+    fn one_high_finding_weighs_more_than_many_low_ones() {
+        let high = score(&repeated("repeated_failures", Severity::High, 1));
+        let low = score(&repeated("unused_credential", Severity::Low, 10));
+        assert_eq!((high, low), (92, 97));
+    }
+
+    #[test]
+    fn a_troubled_instance_scores_low_but_never_zero() {
+        // The mix found on a real instance: open MCP servers and webhooks, a workflow
+        // failing a thousand times, no error workflows, no 2FA, some housekeeping.
+        let mut findings = repeated("public_entry_no_auth", Severity::High, 5);
+        findings.extend(repeated("public_entry_no_auth", Severity::Medium, 10));
+        findings.extend(repeated("repeated_failures", Severity::High, 1));
+        findings.extend(repeated("hardcoded_secret", Severity::Medium, 3));
+        findings.extend(repeated("no_error_workflow", Severity::Medium, 12));
+        findings.extend(repeated("no_mfa", Severity::Medium, 1));
+        findings.extend(repeated("unused_credential", Severity::Low, 10));
+        findings.extend(repeated("env_access", Severity::Low, 4));
+        findings.extend(repeated("removed_node_v3", Severity::Low, 2));
+        findings.extend(repeated("command_execution", Severity::Info, 21));
+        let troubled = score(&findings);
+        assert_eq!(troubled, 53);
+
+        // Closing the open MCP servers is the single biggest improvement.
+        let without_open_mcp: Vec<Finding> = findings
+            .iter()
+            .filter(|f| !(f.check == "public_entry_no_auth" && f.severity == Severity::High))
+            .cloned()
             .collect();
-        assert_eq!(score(&many), 75, "12 x 5 points is capped at 25");
+        assert_eq!(score(&without_open_mcp), 66);
+
+        let hopeless: Vec<Finding> = [
+            "public_entry_no_auth",
+            "repeated_failures",
+            "stuck_execution",
+            "hardcoded_secret",
+        ]
+        .into_iter()
+        .flat_map(|check| repeated(check, Severity::High, 50))
+        .collect();
+        assert!(score(&hopeless) > 0);
     }
 }
