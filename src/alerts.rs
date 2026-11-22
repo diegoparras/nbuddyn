@@ -41,11 +41,10 @@ impl Alerts {
     }
 
     fn wants(&self, severity: Option<&str>) -> bool {
-        match (self.level, severity) {
-            (_, Some("high")) => true,
-            (Level::Medium, Some("medium")) => true,
-            _ => false,
-        }
+        matches!(
+            (self.level, severity),
+            (_, Some("high")) | (Level::Medium, Some("medium"))
+        )
     }
 }
 
