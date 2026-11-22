@@ -4,6 +4,7 @@ mod cluster;
 mod db;
 mod history;
 mod i18n;
+mod mcp;
 mod model;
 mod radar;
 mod runners;
@@ -40,6 +41,8 @@ struct Config {
     history_days: u32,
     /// Decides where a day ends. `None` uses the database's own time zone.
     timezone: Option<String>,
+    /// `None` leaves the MCP endpoint off.
+    mcp_token: Option<String>,
 }
 
 impl Config {
@@ -114,7 +117,17 @@ impl Config {
             }
         }
 
+        let mcp_token = var("NBUDDYN_MCP_TOKEN");
+        if mcp_token.as_ref().is_some_and(|t| t.len() < 24) {
+            return Err(
+                "NBUDDYN_MCP_TOKEN must be at least 24 characters. It is the only thing \
+                 between an AI client and the report."
+                    .into(),
+            );
+        }
+
         Ok(Self {
+            mcp_token,
             redis,
             runners,
             data_dir: var("NBUDDYN_DATA_DIR"),
@@ -150,6 +163,7 @@ async fn main() -> ExitCode {
         history_enabled: config.data_dir.is_some(),
         history: RwLock::new(None),
         history_error: RwLock::new(None),
+        mcp_token: config.mcp_token.clone(),
     });
 
     let listener = match TcpListener::bind(&config.listen).await {

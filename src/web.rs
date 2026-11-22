@@ -6,7 +6,7 @@ use axum::extract::{Query, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use tokio::sync::RwLock;
 use crate::cluster::Cluster;
 use crate::history::{self, History};
 use crate::i18n::{self, ui_text, Lang, UiText};
+use crate::mcp;
 use crate::radar::{Finding, Severity};
 use crate::runners::RunnerProbe;
 
@@ -53,6 +54,8 @@ pub struct AppState {
     pub history: RwLock<Option<Arc<History>>>,
     /// Why the history could not be updated in the latest scan, if it could not.
     pub history_error: RwLock<Option<String>>,
+    /// The token MCP clients must present. `None` turns the MCP endpoint off.
+    pub mcp_token: Option<String>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -64,6 +67,8 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        // Checks its own token: MCP clients send a bearer token, not a login.
+        .route("/mcp", post(mcp::post).fallback(mcp::other))
         .merge(protected)
         .with_state(state)
 }
@@ -95,19 +100,40 @@ struct HistoryReport {
 /// Days shown when the page does not ask for a span.
 const DEFAULT_SPAN: u32 = 30;
 /// The longest span one request can ask for.
-const MAX_SPAN: u32 = 366;
+pub const MAX_SPAN: u32 = 366;
 
 async fn history_report(
     State(state): State<Arc<AppState>>,
     Query(q): Query<HistoryQuery>,
 ) -> Json<HistoryReport> {
-    let span = q.days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
+    Json(read_history(&state, q.days).await)
+}
+
+async fn read_history(state: &AppState, days: Option<u32>) -> HistoryReport {
+    let span = days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
     let history = state.history.read().await.clone();
-    Json(HistoryReport {
+    HistoryReport {
         enabled: state.history_enabled,
         error: state.history_error.read().await.clone(),
         view: history.map(|h| h.view(span)).unwrap_or_default(),
-    })
+    }
+}
+
+/// The history as the page gets it, for the MCP tools.
+pub async fn current_history(state: &AppState, days: Option<u32>) -> serde_json::Value {
+    serde_json::to_value(read_history(state, days).await).unwrap_or_default()
+}
+
+/// The report as the page gets it, for the MCP tools.
+pub async fn current_report(state: &AppState, lang: Lang) -> serde_json::Value {
+    serde_json::to_value(read_report(state, lang).await).unwrap_or_default()
+}
+
+async fn read_report(state: &AppState, lang: Lang) -> Report {
+    let scan = state.latest.read().await.clone();
+    let error = state.last_error.read().await.clone();
+    let cluster_error = state.cluster_error.read().await.clone();
+    build_report(lang, scan, error, cluster_error)
 }
 
 #[derive(Serialize)]
@@ -249,10 +275,7 @@ async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>
         .as_deref()
         .map(Lang::parse)
         .unwrap_or(state.default_lang);
-    let scan = state.latest.read().await.clone();
-    let error = state.last_error.read().await.clone();
-    let cluster_error = state.cluster_error.read().await.clone();
-    Json(build_report(lang, scan, error, cluster_error))
+    Json(read_report(&state, lang).await)
 }
 
 fn build_report(
@@ -410,7 +433,7 @@ fn credentials_match(headers: &HeaderMap, user: &str, password: &str) -> bool {
 }
 
 /// Compares without leaking, through timing, how many leading bytes matched.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
