@@ -119,6 +119,28 @@ What protects the login and the page:
 
 Scripts can still send a name and password with HTTP Basic on every API request.
 
+### Signing in with your company's accounts (single sign-on)
+
+nbuddyn speaks OpenID Connect, which Google, Microsoft Entra, Okta and Keycloak all
+offer. People sign in at the provider; nbuddyn never sees a password. Register nbuddyn
+there as a web application with the redirect address
+`https://your-nbuddyn-host/auth/oidc/callback`, then set:
+
+| Variable | Meaning |
+|---|---|
+| `NBUDDYN_OIDC_ISSUER` | The provider's address, such as `https://accounts.google.com`. Turns single sign-on on. |
+| `NBUDDYN_OIDC_CLIENT_ID`, `NBUDDYN_OIDC_CLIENT_SECRET` | What the provider gave the application. |
+| `NBUDDYN_PUBLIC_URL` | The https address people open nbuddyn at. |
+| `NBUDDYN_OIDC_ADMINS` | Who becomes an administrator: e-mail addresses, or `@example.com` for a whole domain, separated by commas. |
+| `NBUDDYN_OIDC_VIEWERS` | Who may look but not change. Same form. |
+| `NBUDDYN_OIDC_NAME` | What the button says after "Sign in with". Default `SSO`. |
+
+Someone on neither list is refused, and the attempt goes to the audit log. The flow uses
+PKCE and a nonce and is tied to the browser that started it; the provider's signed
+statement is verified against its published keys (RS256), and has to be for this
+nbuddyn, fresh, and about a confirmed e-mail address. The administrator from
+`NBUDDYN_PASSWORD` keeps working, as the way in if the provider is down.
+
 ### Encrypted connections to n8n's database and Redis
 
 For Postgres, `sslmode` in the address works as it does everywhere else:
@@ -337,7 +359,7 @@ directory and survive restarts and updates.
 ## Releases
 
 Versions are listed in the [changelog](CHANGELOG.md). Images are tagged by version
-(`ghcr.io/diegoparras/nbuddyn:0.15.0`) and `latest`, signed, and carry a bill of
+(`ghcr.io/diegoparras/nbuddyn:0.16.0`) and `latest`, signed, and carry a bill of
 materials. How to verify one, how to report a vulnerability, and what an attacker who
 took over nbuddyn would and would not get, are in [SECURITY.md](SECURITY.md).
 

@@ -3,6 +3,13 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## 0.16.0
+
+- **Single sign-on** with OpenID Connect: Google, Microsoft Entra, Okta, Keycloak.
+  Roles come from lists of e-mail addresses and domains.
+- A changelog, a security policy, and images signed with cosign that carry a bill of
+  materials.
+
 ## 0.15.0
 
 - **Big instances.** Measured against a real n8n database with 5,000 workflows and a

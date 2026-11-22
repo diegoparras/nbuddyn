@@ -65,6 +65,8 @@ pub struct Inventory {
 pub struct AppState {
     /// Users, sessions and the record of who did what.
     pub auth: Auth,
+    /// Signing in with the company's accounts, when configured.
+    pub oidc: Option<crate::oidc::Oidc>,
     /// Starting values from the environment.
     pub defaults: Defaults,
     /// What was saved from the page, including the accepted findings.
@@ -169,6 +171,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/favicon.svg", get(favicon))
         .route("/favicon.ico", get(favicon))
         .route("/api/me", get(me))
+        .route("/api/auth", get(auth_options))
+        .route("/auth/oidc/start", get(oidc_start))
+        .route("/auth/oidc/callback", get(oidc_callback))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         // Checks its own token: MCP clients send a bearer token, not a login.
@@ -1327,13 +1332,7 @@ async fn rescan(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
 const SESSION_COOKIE: &str = "nbuddyn_session";
 
 fn session_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())?
-        .split(';')
-        .filter_map(|pair| pair.trim().split_once('='))
-        .find(|(name, _)| *name == SESSION_COOKIE)
-        .map(|(_, token)| token)
+    cookie(headers, SESSION_COOKIE)
 }
 
 /// The name and password of an `Authorization: Basic` header, for scripts.
@@ -1413,6 +1412,124 @@ async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response 
     }
 }
 
+/// What the login page offers besides a name and a password.
+#[derive(Serialize)]
+struct AuthOptions {
+    /// What the single sign-on button says. Absent when there is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sso: Option<String>,
+}
+
+async fn auth_options(State(state): State<Arc<AppState>>) -> Json<AuthOptions> {
+    Json(AuthOptions {
+        sso: state.oidc.as_ref().map(|o| o.config.name.clone()),
+    })
+}
+
+const OIDC_COOKIE: &str = "nbuddyn_oidc";
+
+fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())?
+        .split(';')
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(found, _)| *found == name)
+        .map(|(_, value)| value)
+}
+
+fn is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("https"))
+}
+
+/// Back to the page, which says what went wrong in the reader's language.
+fn back_to_login(problem: &str) -> Response {
+    (
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, format!("/#sso={problem}"))],
+    )
+        .into_response()
+}
+
+async fn oidc_start(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let Some(oidc) = &state.oidc else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match oidc.start(now()).await {
+        Ok((url, binding)) => {
+            // `Lax`, not `Strict`: this cookie has to come back when the
+            // provider sends the browser here from its own site.
+            let bound = format!(
+                "{OIDC_COOKIE}={binding}; Path=/auth/oidc; Max-Age=600; HttpOnly; SameSite=Lax{}",
+                if is_https(&headers) { "; Secure" } else { "" }
+            );
+            (
+                StatusCode::SEE_OTHER,
+                [(header::LOCATION, url), (header::SET_COOKIE, bound)],
+            )
+                .into_response()
+        }
+        Err(reason) => {
+            eprintln!("single sign-on could not start: {reason}");
+            back_to_login("failed")
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct OidcCallback {
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    state: String,
+}
+
+async fn oidc_callback(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(q): Query<OidcCallback>,
+) -> Response {
+    let Some(oidc) = &state.oidc else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let binding = cookie(&headers, OIDC_COOKIE);
+    match oidc.finish(&q.code, &q.state, binding, now()).await {
+        Ok((email, role)) => {
+            let who = Identity { name: email, role };
+            let token = state.auth.open_session(who.clone(), now());
+            state.auth.record(now(), &who.name, "login", "sso");
+            let session = format!(
+                "{SESSION_COOKIE}={token}; Path=/; Max-Age={}; HttpOnly; SameSite=Strict{}",
+                state.auth.session_seconds(),
+                if is_https(&headers) { "; Secure" } else { "" }
+            );
+            let spent =
+                format!("{OIDC_COOKIE}=; Path=/auth/oidc; Max-Age=0; HttpOnly; SameSite=Lax");
+            let mut response = (StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response();
+            for value in [session, spent] {
+                if let Ok(value) = value.parse() {
+                    response.headers_mut().append(header::SET_COOKIE, value);
+                }
+            }
+            response
+        }
+        Err(crate::oidc::Refusal::NotAllowed(email)) => {
+            state
+                .auth
+                .record(now(), &email, "login_failed", "sso: not on the list");
+            back_to_login("denied")
+        }
+        Err(crate::oidc::Refusal::Failed(reason)) => {
+            eprintln!("single sign-on failed: {reason}");
+            state.auth.record(now(), "", "login_failed", "sso");
+            back_to_login("failed")
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Login {
     #[serde(default)]
@@ -1444,10 +1561,7 @@ async fn login(
             state.auth.record(now(), &who.name, "login", "");
             // `Secure` only when the browser reached us over https, or the
             // cookie would never come back on a plain local install.
-            let https = headers
-                .get("x-forwarded-proto")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+            let https = is_https(&headers);
             let cookie = format!(
                 "{SESSION_COOKIE}={token}; Path=/; Max-Age={}; HttpOnly; SameSite=Strict{}",
                 state.auth.session_seconds(),

@@ -487,9 +487,9 @@
 
   /* ---------- Login ---------- */
   var LOGIN = {
-    en: { tag: "Flight report for n8n", user: "User name", password: "Password", enter: "Sign in", show: "Show password", hide: "Hide password", wrong: "Wrong user name or password.", wait: "Too many tries. Try again in {n} s.", down: "nbuddyn is not answering. Try again in a moment." },
-    es: { tag: "Informe de vuelo de n8n", user: "Usuario", password: "Clave", enter: "Entrar", show: "Mostrar la clave", hide: "Ocultar la clave", wrong: "Usuario o clave incorrectos.", wait: "Demasiados intentos. Probá de nuevo en {n} s.", down: "nbuddyn no responde. Probá de nuevo en un momento." },
-    pt: { tag: "Relatório de voo do n8n", user: "Usuário", password: "Senha", enter: "Entrar", show: "Mostrar a senha", hide: "Ocultar a senha", wrong: "Usuário ou senha incorretos.", wait: "Muitas tentativas. Tente de novo em {n} s.", down: "O nbuddyn não responde. Tente de novo em um momento." }
+    en: { tag: "Flight report for n8n", user: "User name", password: "Password", enter: "Sign in", show: "Show password", hide: "Hide password", sso: "Sign in with {name}", or: "or", denied: "That account is not allowed to use this nbuddyn. Ask its administrator.", ssoFailed: "The sign-in could not be completed. Try again.", wrong: "Wrong user name or password.", wait: "Too many tries. Try again in {n} s.", down: "nbuddyn is not answering. Try again in a moment." },
+    es: { tag: "Informe de vuelo de n8n", user: "Usuario", password: "Clave", enter: "Entrar", show: "Mostrar la clave", hide: "Ocultar la clave", sso: "Entrar con {name}", or: "o", denied: "Esa cuenta no tiene permiso para usar este nbuddyn. Pedíselo a su administrador.", ssoFailed: "No se pudo completar el inicio de sesión. Probá de nuevo.", wrong: "Usuario o clave incorrectos.", wait: "Demasiados intentos. Probá de nuevo en {n} s.", down: "nbuddyn no responde. Probá de nuevo en un momento." },
+    pt: { tag: "Relatório de voo do n8n", user: "Usuário", password: "Senha", enter: "Entrar", show: "Mostrar a senha", hide: "Ocultar a senha", sso: "Entrar com {name}", or: "ou", denied: "Essa conta não tem permissão para usar este nbuddyn. Peça ao administrador.", ssoFailed: "Não foi possível concluir o login. Tente de novo.", wrong: "Usuário ou senha incorretos.", wait: "Muitas tentativas. Tente de novo em {n} s.", down: "O nbuddyn não responde. Tente de novo em um momento." }
   };
   function showLogin() {
     var box = $("login");
@@ -531,6 +531,18 @@
         })
         .catch(function () { enter.disabled = false; problem.textContent = t.down; });
     });
+    // The company's own sign-in, when nbuddyn was given one.
+    fetch("api/auth").then(function (res) { return res.json(); }).then(function (options) {
+      if (!options.sso) return;
+      form.insertBefore(h("a", { class: "btn primary", href: "auth/oidc/start", text: t.sso.replace("{name}", options.sso) }), form.children[2]);
+      form.insertBefore(h("div", { class: "eyebrow", style: "margin:4px 0", text: t.or }), form.children[3]);
+      enter.className = "btn";
+    }).catch(function () {});
+    var came = (location.hash.match(/^#sso=([a-z]+)/) || [])[1];
+    if (came) {
+      problem.textContent = came === "denied" ? t.denied : t.ssoFailed;
+      history.replaceState(null, "", location.pathname);
+    }
     $("app").hidden = true;
     fill(box, form);
     box.hidden = false;

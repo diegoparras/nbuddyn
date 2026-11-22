@@ -9,6 +9,7 @@ mod http;
 mod i18n;
 mod mcp;
 mod model;
+mod oidc;
 mod radar;
 mod runners;
 mod settings;
@@ -41,6 +42,8 @@ struct Config {
     mcp_token: Option<String>,
     /// Seals the secrets nbuddyn stores. `None` makes nbuddyn keep its own key.
     secret_key: Option<String>,
+    /// Signing in with the company's accounts. `None` leaves it off.
+    oidc: Option<oidc::Config>,
     /// `None` leaves nbuddyn without memory: no history, no saved settings.
     data_dir: Option<String>,
     /// Starting values for everything the page can change.
@@ -76,6 +79,42 @@ impl Config {
         };
 
         tls::load_extra_roots(var("NBUDDYN_CA_FILE").as_deref())?;
+
+        let oidc = match var("NBUDDYN_OIDC_ISSUER") {
+            None => None,
+            Some(issuer) => {
+                let need = |name: &str| {
+                    var(name).ok_or(format!("{name} is required with NBUDDYN_OIDC_ISSUER"))
+                };
+                let public = need("NBUDDYN_PUBLIC_URL")?;
+                if !(public.starts_with("https://")
+                    || public.starts_with("http://127.0.0.1")
+                    || public.starts_with("http://localhost"))
+                {
+                    return Err(
+                        "NBUDDYN_PUBLIC_URL must be the https address people open nbuddyn at"
+                            .into(),
+                    );
+                }
+                let config = oidc::Config {
+                    issuer: issuer.trim_end_matches('/').to_owned(),
+                    client_id: need("NBUDDYN_OIDC_CLIENT_ID")?,
+                    client_secret: need("NBUDDYN_OIDC_CLIENT_SECRET")?,
+                    redirect_uri: format!("{}/auth/oidc/callback", public.trim_end_matches('/')),
+                    name: var("NBUDDYN_OIDC_NAME").unwrap_or_else(|| "SSO".into()),
+                    admins: oidc::parse_people(&var("NBUDDYN_OIDC_ADMINS").unwrap_or_default()),
+                    viewers: oidc::parse_people(&var("NBUDDYN_OIDC_VIEWERS").unwrap_or_default()),
+                };
+                if config.admins.is_empty() && config.viewers.is_empty() {
+                    return Err(
+                        "NBUDDYN_OIDC_ADMINS or NBUDDYN_OIDC_VIEWERS must name who may sign in: \
+                         e-mail addresses, or @domain for a whole domain"
+                            .into(),
+                    );
+                }
+                Some(config)
+            }
+        };
 
         let mcp_token = var("NBUDDYN_MCP_TOKEN");
         if mcp_token.as_ref().is_some_and(|t| t.len() < 24) {
@@ -121,6 +160,7 @@ impl Config {
             password,
             mcp_token,
             secret_key: var("NBUDDYN_SECRET_KEY"),
+            oidc,
             data_dir: var("NBUDDYN_DATA_DIR"),
             defaults,
         })
@@ -247,6 +287,7 @@ async fn main() -> ExitCode {
             config.data_dir.as_deref().map(std::path::PathBuf::from),
         ),
         mcp_token: config.mcp_token.clone(),
+        oidc: config.oidc.map(oidc::Oidc::new),
         defaults: config.defaults,
         saved: RwLock::new(saved),
         settings_store,
