@@ -42,6 +42,9 @@ Being honest about this is part of the product:
 - Nothing that lets them change n8n, unless the database user was given more than the
   documented grants.
 
+The full list of what protects each way in, and what is knowingly left open, is in the
+[threat model](docs/THREAT-MODEL.md).
+
 ## Verifying a release
 
 Images are built by GitHub Actions from this repository and signed with

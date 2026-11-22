@@ -9,6 +9,18 @@ which doors are open, what is failing in silence, and what will break.
 - **One binary.** A few MB on disk and in memory, no other services to install.
 - **Three languages.** English, Spanish and Portuguese, selectable on the page.
 
+## Try it in half a minute
+
+No n8n needed: this starts nbuddyn against a made-up one with the problems real
+instances have.
+
+```bash
+docker run --rm -p 8787:8787 ghcr.io/diegoparras/nbuddyn:latest demo
+```
+
+Open `http://localhost:8787` and sign in as `demo` / `demo`. To watch your own n8n, see
+[Run it](#run-it) or the ready-made files in [`deploy/`](deploy).
+
 nbuddyn is an independent project. It is not affiliated with or endorsed by n8n GmbH.
 It contains no n8n code and does not unlock, replace or bypass any licensed n8n feature.
 
@@ -378,7 +390,9 @@ directory and survive restarts and updates.
 Versions are listed in the [changelog](CHANGELOG.md). Images are tagged by version
 (`ghcr.io/diegoparras/nbuddyn:0.17.0`) and `latest`, signed, and carry a bill of
 materials. How to verify one, how to report a vulnerability, and what an attacker who
-took over nbuddyn would and would not get, are in [SECURITY.md](SECURITY.md).
+took over nbuddyn would and would not get, are in [SECURITY.md](SECURITY.md). The [threat model](docs/THREAT-MODEL.md) lists what
+protects each way in and what is knowingly left open; no independent audit has been done
+yet.
 
 ## Development
 

@@ -4,6 +4,7 @@ mod alerts;
 mod auth;
 mod cluster;
 mod db;
+mod demo;
 mod history;
 mod http;
 mod i18n;
@@ -237,8 +238,47 @@ async fn check() -> ExitCode {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    if env::args().nth(1).as_deref() == Some("check") {
-        return check().await;
+    match env::args().nth(1).as_deref() {
+        Some("check") => return check().await,
+        Some("demo") => {
+            // A made-up n8n in a temporary folder, and settings to match.
+            // Anything already set in the environment is left as it is.
+            // Inside the image the only place nbuddyn may write is its data
+            // directory; elsewhere a temporary folder does.
+            let dir = match env::var("NBUDDYN_DATA_DIR") {
+                Ok(data) if !data.trim().is_empty() => std::path::PathBuf::from(data).join("demo"),
+                _ => env::temp_dir().join("nbuddyn-demo"),
+            };
+            let file = dir.join("database.sqlite");
+            if let Err(reason) = std::fs::create_dir_all(&dir)
+                .map_err(|e| e.to_string())
+                .and_then(|()| demo::build(&file))
+            {
+                eprintln!("nbuddyn demo: {reason}");
+                return ExitCode::from(1);
+            }
+            let _ = std::fs::remove_dir_all(dir.join("data"));
+            let defaults = [
+                ("NBUDDYN_DATABASE_URL", format!("sqlite:{}", file.display())),
+                ("NBUDDYN_DATA_DIR", dir.join("data").display().to_string()),
+                ("NBUDDYN_USER", "demo".to_owned()),
+                ("NBUDDYN_PASSWORD", "demo".to_owned()),
+                ("NBUDDYN_NAME", "Demo n8n".to_owned()),
+                ("NBUDDYN_N8N_URL", "https://n8n.example.com".to_owned()),
+            ];
+            for (name, value) in defaults {
+                // The data directory is always the demo's own, so a demo
+                // never touches a real history.
+                if name == "NBUDDYN_DATA_DIR"
+                    || name == "NBUDDYN_DATABASE_URL"
+                    || env::var(name).is_err()
+                {
+                    env::set_var(name, value);
+                }
+            }
+            println!("nbuddyn demo: a made-up n8n. Open the page and sign in as demo / demo.");
+        }
+        _ => {}
     }
     let config = match Config::from_env() {
         Ok(config) => config,

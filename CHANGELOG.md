@@ -7,6 +7,8 @@ while the first number is 0, the second one changes when something you rely on m
 
 - **Your rules**: per-check severity, a required reason when accepting, and
   acceptances that expire.
+- **`nbuddyn demo`**: a made-up n8n to look around in, with no n8n needed.
+- A threat model, and ready-made compose files in `deploy/`.
 
 ## 0.16.0
 

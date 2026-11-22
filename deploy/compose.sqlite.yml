@@ -1,0 +1,27 @@
+# nbuddyn next to an n8n that uses SQLite, the default when n8n has no database set.
+# `n8n_data` must be the volume your n8n mounts at /home/node/.n8n.
+# docker compose -f compose.sqlite.yml up -d, then open http://localhost:8787
+services:
+  nbuddyn:
+    image: ghcr.io/diegoparras/nbuddyn:latest
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      NBUDDYN_DATABASE_URL: sqlite:/n8n/database.sqlite
+      NBUDDYN_PASSWORD: choose-a-login-password
+      # 32 characters or more. Keep it: it opens the secrets nbuddyn stores.
+      NBUDDYN_SECRET_KEY: change-me-to-something-long-and-random-1234
+    volumes:
+      # Read-only: nbuddyn cannot change n8n's files even if it wanted to.
+      - n8n_data:/n8n:ro
+      - nbuddyn_data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+
+volumes:
+  n8n_data:
+    external: true
+  nbuddyn_data:
