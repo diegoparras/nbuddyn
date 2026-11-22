@@ -5,6 +5,13 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # "Run workflow" on main with a version publishes it: the image under that
+  # version, and a release with its notes from the changelog.
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Version to publish, as in Cargo.toml (for example 0.17.0)"
+        required: true
 
 permissions:
   contents: read
@@ -158,8 +165,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
+          # `latest` follows main, whatever the repository's default branch is.
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ inputs.release }},enable=${{ inputs.release != '' && github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
@@ -176,14 +185,17 @@ jobs:
           digest=$(docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}" --format '{{ json .Manifest }}' | jq -r .digest)
           cosign sign --yes "$IMAGE@$digest"
       - uses: actions/checkout@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: inputs.release != '' && github.ref == 'refs/heads/main'
       - name: Create the release from the changelog
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: inputs.release != '' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.release }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          # The version asked for has to be the one the code says it is.
+          grep -qx "version = \"$VERSION\"" Cargo.toml || { echo "Cargo.toml is not at $VERSION"; exit 1; }
           # The section of the changelog for this version, without its heading.
-          awk -v v="## $version" '$0 == v {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md
-          printf '\n\nImage: `%s:%s`, for linux/amd64 and linux/arm64, signed with cosign.\n' "$IMAGE" "$version" >> notes.md
-          gh release create "$GITHUB_REF_NAME" --title "nbuddyn $version" --notes-file notes.md
+          awk -v v="## $VERSION" '$0 == v {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for $VERSION"; exit 1; }
+          printf '\n\nImage: `%s:%s`, for linux/amd64 and linux/arm64, signed with cosign.\n' "$IMAGE" "$VERSION" >> notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "nbuddyn $VERSION" --notes-file notes.md
