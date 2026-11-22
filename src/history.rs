@@ -207,8 +207,8 @@ const USUAL_WINDOW: i64 = 14;
 const QUIET_DAYS: i64 = 3;
 
 impl History {
-    /// Compares this scan with the previous one, writes down what changed and
-    /// remembers this scan for the next comparison. The first time there is
+    /// Compares this scan with the previous one, writes down what changed,
+    /// remembers this scan for the next comparison, and returns what changed. The first time there is
     /// nothing to compare with, so nothing is written down.
     pub fn observe(
         &mut self,
@@ -217,7 +217,7 @@ impl History {
         workflows: &[Workflow],
         authors: &std::collections::HashMap<String, String>,
         keep_days: u32,
-    ) {
+    ) -> Vec<Event> {
         let previous = self.seen.take();
         let mut seen = Seen::default();
         let mut events = Vec::new();
@@ -318,13 +318,14 @@ impl History {
         }
 
         self.seen = Some(seen);
-        self.events.extend(events);
+        self.events.extend(events.iter().cloned());
         let oldest = now.saturating_sub(u64::from(keep_days) * 86_400);
         self.events.retain(|e| e.at >= oldest);
         if self.events.len() > EVENTS_MAX {
             let extra = self.events.len() - EVENTS_MAX;
             self.events.drain(..extra);
         }
+        events
     }
 
     /// Workflows that ran on most of the days before the last few and not once
@@ -832,7 +833,7 @@ mod tests {
     fn the_first_look_is_a_baseline_and_later_looks_report_what_changed() {
         let authors = std::collections::HashMap::from([("w1".to_owned(), "Ana Paz".to_owned())]);
         let mut history = History::default();
-        history.observe(
+        let _ = history.observe(
             100,
             &[finding("no_error_workflow", "w1")],
             &[
@@ -848,7 +849,7 @@ mod tests {
             None
         );
 
-        history.observe(
+        let _ = history.observe(
             200,
             &[finding("public_entry_no_auth", "w1")],
             &[
@@ -890,7 +891,7 @@ mod tests {
             workflow("w1", "Ventas 2", false, r#"[{"name":"a"}]"#),
             workflow("w3", "Nuevo", true, "[]"),
         ];
-        history.observe(
+        let _ = history.observe(
             300,
             &[finding("public_entry_no_auth", "w1")],
             &same,
@@ -900,7 +901,7 @@ mod tests {
         assert_eq!(history.events.len(), 7);
         assert_eq!(history.events_since(250).len(), 0);
         assert_eq!(history.events_since(200).len(), 7);
-        history.observe(
+        let _ = history.observe(
             200 + 2 * 86_400,
             &[finding("public_entry_no_auth", "w1")],
             &same,

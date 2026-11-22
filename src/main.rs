@@ -1,9 +1,11 @@
 //! nbuddyn: a tiny, read-only cockpit for self-hosted n8n.
 
+mod alerts;
 mod auth;
 mod cluster;
 mod db;
 mod history;
+mod http;
 mod i18n;
 mod mcp;
 mod model;
@@ -12,6 +14,7 @@ mod runners;
 mod settings;
 mod sqlite;
 mod tls;
+mod vault;
 mod web;
 
 use std::collections::HashMap;
@@ -36,6 +39,8 @@ struct Config {
     password: Option<String>,
     /// `None` leaves the MCP endpoint off.
     mcp_token: Option<String>,
+    /// Seals the secrets nbuddyn stores. `None` makes nbuddyn keep its own key.
+    secret_key: Option<String>,
     /// `None` leaves nbuddyn without memory: no history, no saved settings.
     data_dir: Option<String>,
     /// Starting values for everything the page can change.
@@ -91,6 +96,11 @@ impl Config {
             history_days: u32::try_from(number("NBUDDYN_HISTORY_DAYS", 400)?).unwrap_or(u32::MAX),
             runner_urls: var("NBUDDYN_RUNNER_URLS").unwrap_or_default(),
             redis_url: var("NBUDDYN_REDIS_URL").unwrap_or_default(),
+            telegram_token: var("NBUDDYN_TELEGRAM_TOKEN").unwrap_or_default(),
+            telegram_chat: var("NBUDDYN_TELEGRAM_CHAT").unwrap_or_default(),
+            telegram_api: var("NBUDDYN_TELEGRAM_API").unwrap_or_default(),
+            webhook_url: var("NBUDDYN_WEBHOOK_URL").unwrap_or_default(),
+            alert_level: var("NBUDDYN_ALERT_LEVEL").unwrap_or_default(),
             bull_prefix: var("NBUDDYN_BULL_PREFIX"),
             queue_name: var("NBUDDYN_QUEUE_NAME"),
             redis_key_prefix: var("NBUDDYN_REDIS_KEY_PREFIX"),
@@ -110,6 +120,7 @@ impl Config {
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
             password,
             mcp_token,
+            secret_key: var("NBUDDYN_SECRET_KEY"),
             data_dir: var("NBUDDYN_DATA_DIR"),
             defaults,
         })
@@ -128,7 +139,17 @@ async fn main() -> ExitCode {
 
     // Saved settings that cannot be read are left alone: nbuddyn runs on its
     // starting values and refuses to save until someone looks at the file.
-    let store = config.data_dir.as_deref().map(settings::Store::new);
+    let vault = match config.data_dir.as_deref() {
+        None => None,
+        Some(dir) => match vault::Vault::open(config.secret_key.as_deref(), dir.as_ref()) {
+            Ok(vault) => Some((dir, Arc::new(vault))),
+            Err(reason) => {
+                eprintln!("nbuddyn: {reason}");
+                return ExitCode::from(2);
+            }
+        },
+    };
+    let store = vault.map(|(dir, vault)| settings::Store::new(dir, vault));
     let (saved, settings_store, settings_error) = match store.map(|s| (s.load(), s)) {
         None => (settings::Saved::default(), None, None),
         Some((Ok(saved), store)) => match saved.resolve(&config.defaults) {
@@ -197,6 +218,11 @@ async fn main() -> ExitCode {
 async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
     // Loaded on the first scan that can read them, then kept between scans.
     let mut histories: HashMap<String, History> = HashMap::new();
+    // Scans in a row that could not read each instance, to alert on the third
+    // and again when it comes back.
+    let mut failures: HashMap<String, u32> = HashMap::new();
+    // When each finding last alerted, so one that flaps does not nag.
+    let mut alerted: HashMap<String, u64> = HashMap::new();
     loop {
         let effective = state.effective().await;
         histories.retain(|id, _| effective.instances.iter().any(|i| i.id == *id));
@@ -218,22 +244,75 @@ async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
             if let Some(history) = history {
                 histories.insert(instance.id.clone(), history);
             }
-            match scanned {
-                Ok(scan) => {
+            let failed_before = failures.get(&instance.id).copied().unwrap_or(0);
+            let message = match scanned {
+                Ok((scan, mut events)) => {
                     println!(
                         "scan ok: {}: {} findings",
                         instance.name,
                         scan.findings.len()
                     );
+                    let now = scan.generated_at;
+                    events.retain(|e| {
+                        if e.kind != "finding_new" {
+                            return true;
+                        }
+                        let key = format!(
+                            "{}|{:?}|{:?}|{:?}",
+                            instance.id, e.check, e.workflow, e.node
+                        );
+                        let recent = alerted
+                            .get(&key)
+                            .is_some_and(|at| now.saturating_sub(*at) < ALERT_AGAIN_AFTER);
+                        alerted.insert(key, now);
+                        !recent
+                    });
+                    alerted.retain(|_, at| now.saturating_sub(*at) < ALERT_AGAIN_AFTER);
+                    let score = web::score_without_accepted(
+                        &scan.findings,
+                        state.saved.read().await.accepted_in(&instance.id),
+                    );
                     *runtime.latest.write().await = Some(scan);
                     *runtime.last_error.write().await = None;
+                    failures.remove(&instance.id);
+                    if failed_before >= FAILURES_TO_ALERT {
+                        Some(alerts::compose_reachability(
+                            effective.lang,
+                            &instance.name,
+                            None,
+                        ))
+                    } else {
+                        alerts::compose(
+                            &effective.alerts,
+                            effective.lang,
+                            &instance.name,
+                            &instance.n8n_url,
+                            &events,
+                            score,
+                        )
+                    }
                 }
                 Err(reason) => {
                     eprintln!("scan failed: {}: {reason}", instance.name);
+                    failures.insert(instance.id.clone(), failed_before + 1);
+                    let message = (failed_before + 1 == FAILURES_TO_ALERT).then(|| {
+                        alerts::compose_reachability(effective.lang, &instance.name, Some(&reason))
+                    });
                     *runtime.last_error.write().await = Some(reason);
+                    message
                 }
+            };
+            if let Some(message) = message.filter(|_| effective.alerts.enabled()) {
+                // Sent on the side: a slow chat must not hold up the next scan.
+                let destinations = effective.alerts.clone();
+                tokio::spawn(async move {
+                    for problem in alerts::deliver(&destinations, &message).await {
+                        eprintln!("alert not delivered: {problem}");
+                    }
+                });
             }
         }
+        failures.retain(|id, _| effective.instances.iter().any(|i| i.id == *id));
         state.forget_runtimes_except(&effective.instances).await;
         tokio::select! {
             () = tokio::time::sleep(effective.interval) => {}
@@ -242,6 +321,11 @@ async fn scan_forever(state: Arc<AppState>, data_dir: Option<String>) {
     }
 }
 
+/// Failed scans in a row before saying an instance cannot be read.
+const FAILURES_TO_ALERT: u32 = 3;
+/// A finding that comes back sooner than this after alerting stays quiet.
+const ALERT_AGAIN_AFTER: u64 = 6 * 3600;
+
 async fn scan_once(
     state: &AppState,
     runtime: &Runtime,
@@ -249,7 +333,7 @@ async fn scan_once(
     store: Option<&history::Store>,
     history: &mut Option<History>,
     history_days: u32,
-) -> Result<Scan, String> {
+) -> Result<(Scan, Vec<history::Event>), String> {
     let source = db::connect(&instance.database_url, instance.timezone.as_deref()).await?;
     let mut snapshot = source.read_snapshot().await?;
 
@@ -271,6 +355,7 @@ async fn scan_once(
     *runtime.cluster_error.write().await = cluster_error;
     snapshot.runners = runners::probe_all(&instance.runners).await;
     let mut scan = evaluate(&snapshot);
+    let mut events = Vec::new();
 
     if let Some(store) = store {
         let accepted = state.saved.read().await.accepted_in(&instance.id).to_vec();
@@ -284,13 +369,20 @@ async fn scan_once(
             history_days,
         )
         .await;
-        if let Err(reason) = &outcome {
-            eprintln!("history not updated: {}: {reason}", instance.name);
-        }
-        *runtime.history_error.write().await = outcome.err();
+        let outcome = match outcome {
+            Ok(changed) => {
+                events = changed;
+                None
+            }
+            Err(reason) => {
+                eprintln!("history not updated: {}: {reason}", instance.name);
+                Some(reason)
+            }
+        };
+        *runtime.history_error.write().await = outcome;
         *runtime.history.write().await = history.clone().map(Arc::new);
     }
-    Ok(scan)
+    Ok((scan, events))
 }
 
 /// Brings the history up to this scan and saves it: the executions that
@@ -307,7 +399,7 @@ async fn remember(
     scan: &mut Scan,
     accepted: &[settings::Accepted],
     keep_days: u32,
-) -> Result<(), String> {
+) -> Result<Vec<history::Event>, String> {
     let mut next = match history {
         Some(history) => history.clone(),
         None => store.load()?,
@@ -323,7 +415,7 @@ async fn remember(
     // The history keeps the score people see: without what they accepted.
     let score = web::score_without_accepted(&scan.findings, accepted);
     next.record_score(&today, score, keep_days);
-    next.observe(
+    let events = next.observe(
         scan.generated_at,
         &scan.findings,
         &snapshot.workflows,
@@ -332,7 +424,7 @@ async fn remember(
     );
     store.save(&next)?;
     *history = Some(next);
-    Ok(())
+    Ok(events)
 }
 
 fn evaluate(snapshot: &Snapshot) -> Scan {

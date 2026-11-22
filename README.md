@@ -76,6 +76,20 @@ backup file from Settings.
 Only totals are kept, in one small JSON file. No execution data is read or stored.
 A workflow that was deleted stays in the history under its last known name.
 
+## Alerts
+
+nbuddyn alerts when something changes, never about the whole report:
+
+- a finding appears at or above the level you choose (urgent only, or urgent and important);
+- one of those goes away;
+- an n8n cannot be read for three scans in a row, and when it can again;
+- optionally, workflows that were created, edited, activated, deactivated or deleted.
+
+The same finding never alerts twice within six hours. Alerts go to a **Telegram** chat
+(a bot token from @BotFather and a chat id) and to any **webhook** that takes a JSON
+POST: a Slack incoming webhook works as is, and so does an n8n webhook. Both are set in
+**Settings**, where a button sends a test message.
+
 ## Users and security
 
 nbuddyn has its own login page. The administrator in `NBUDDYN_USER` and `NBUDDYN_PASSWORD`
@@ -96,6 +110,12 @@ What protects the login and the page:
 - Anything that changes state needs a header another site cannot send, and an administrator.
 - An **audit log** in Settings records sign-ins, failed sign-ins, accepted findings, and
   changes to settings, instances and users, with who did each.
+
+- **Secrets at rest are sealed.** The database and Redis passwords of instances added on
+  the page, the Telegram token and the webhook address are encrypted with
+  ChaCha20-Poly1305 before they are written. Set `NBUDDYN_SECRET_KEY` (32 characters or
+  more) to keep the key out of the data directory; without it nbuddyn makes one and keeps
+  it there in a file only it can read.
 
 Scripts can still send a name and password with HTTP Basic on every API request.
 
@@ -241,6 +261,10 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`, or `rediss://` to encrypt. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |
+| `NBUDDYN_SECRET_KEY` | made and kept in the data directory | Seals the secrets nbuddyn stores. Changing it makes saved secrets unreadable, so keep it. |
+| `NBUDDYN_TELEGRAM_TOKEN`, `NBUDDYN_TELEGRAM_CHAT` | unset | Starting values for Telegram alerts. |
+| `NBUDDYN_WEBHOOK_URL` | unset | Starting value for the alert webhook. |
+| `NBUDDYN_ALERT_LEVEL` | `high` | `high` alerts on urgent findings, `medium` on important ones too. |
 | `NBUDDYN_CA_FILE` | unset | A PEM file with extra certificate authorities to trust for Postgres (`sslmode=verify-full`) and Redis (`rediss://`). |
 | `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history, the saved settings and the accepted findings live. Mount a volume there, or they are lost with the container. Unset outside the image: no history, and nothing can be saved from the page. |
 | `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
@@ -264,7 +288,7 @@ http: keep nbuddyn on the same private network as them. `GET /healthz` answers w
 ## Status
 
 One page, two JSON endpoints (`/api/report?lang=es` and `/api/history?days=30`) and an MCP endpoint (`/mcp`). Tested against n8n 3.3 on
-Postgres, n8n 2.48 on SQLite, and Redis 8. Planned next: alerts.
+Postgres, n8n 2.48 on SQLite, and Redis 8. 
 
 ## Development
 

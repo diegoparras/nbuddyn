@@ -157,6 +157,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/users", get(users_list).post(user_save))
         .route("/api/users/remove", post(user_remove))
         .route("/api/audit", get(audit_list))
+        .route("/api/alerts/test", post(alerts_test))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -1078,6 +1079,10 @@ struct SettingsView {
     /// Where this instance's database is, without the user or the password.
     database: String,
     mcp: bool,
+    /// Where the key that seals stored secrets comes from: `environment` or
+    /// `data`. Absent when nothing can be stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secrets_key: Option<&'static str>,
     version: &'static str,
 }
 
@@ -1111,6 +1116,10 @@ async fn read_settings(state: &AppState, q: Which) -> SettingsView {
             name: instance.name,
         },
         mcp: state.mcp_token.is_some(),
+        secrets_key: state.settings_store.as_ref().map(|s| match s.key_source() {
+            crate::vault::KeySource::Environment => "environment",
+            crate::vault::KeySource::DataDirectory => "data",
+        }),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
@@ -1566,6 +1575,32 @@ async fn audit_list(
         return StatusCode::FORBIDDEN.into_response();
     }
     Json(state.auth.audit(200)).into_response()
+}
+
+/// Sends a test message everywhere alerts go, and says what went wrong.
+async fn alerts_test(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) || !who.is_admin() {
+        return Saving::refused(StatusCode::FORBIDDEN, Vec::new(), None);
+    }
+    let effective = state.effective().await;
+    if !effective.alerts.enabled() {
+        return Saving::refused(StatusCode::CONFLICT, Vec::new(), None);
+    }
+    let message = crate::alerts::compose_test(effective.lang);
+    let problems = crate::alerts::deliver(&effective.alerts, &message).await;
+    if problems.is_empty() {
+        Saving::done()
+    } else {
+        Saving::refused(
+            StatusCode::BAD_GATEWAY,
+            Vec::new(),
+            Some(problems.join(" · ")),
+        )
+    }
 }
 
 pub use auth::constant_time_eq;

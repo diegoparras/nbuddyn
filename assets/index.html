@@ -1190,7 +1190,8 @@
   /* ---------- Settings ---------- */
   var SECTIONS = [["sec_instance", [["name", "text"], ["database_url", "text"], ["n8n_url", "text"], ["timezone", "text"]]],
                   ["sec_cluster", [["redis_url", "text"], ["runner_urls", "area"]]],
-                  ["sec_general", [["lang", "select"], ["interval_seconds", "number"], ["history_days", "number"]]]];
+                  ["sec_general", [["lang", "select"], ["interval_seconds", "number"], ["history_days", "number"]]],
+                  ["sec_alerts", [["telegram_token", "text"], ["telegram_chat", "text"], ["webhook_url", "text"], ["alert_level", "choice:high,medium"], ["alert_changes", "choice:false,true"]]]];
 
   /* Who can come in, and with what role. */
   function usersCard(ui) {
@@ -1322,6 +1323,9 @@
           if (f[1] === "select") {
             input = h("select");
             [["en", "English"], ["es", "Español"], ["pt", "Português"]].forEach(function (o) { input.appendChild(h("option", { value: o[0], text: o[1] })); });
+          } else if (f[1].indexOf("choice:") === 0) {
+            input = h("select");
+            f[1].slice(7).split(",").forEach(function (o) { input.appendChild(h("option", { value: o, text: ui[name + "_" + o] })); });
           } else if (f[1] === "area") input = h("textarea", { rows: 5, spellcheck: false });
           else input = h("input", { type: f[1], spellcheck: false, autocomplete: "off" });
           input.id = "set_" + name;
@@ -1333,17 +1337,31 @@
             h("label", { htmlFor: "set_" + name, text: ui["set_" + name] }), input,
             ui["help_" + name] ? h("div", "help", ui["help_" + name]) : null));
         });
+        if (section[0] === "sec_alerts") {
+          card.insertBefore(h("p", { class: "hint", style: "margin:0;padding:14px 18px 0", text: ui.alerts_help }), card.children[1]);
+          var test = h("button", { type: "button", class: "btn", text: ui.alerts_test, hidden: !s.writable });
+          test.addEventListener("click", function () {
+            test.disabled = true;
+            fetch("api/alerts/test", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Nbuddyn": "1" }, body: "{}" })
+              .then(function (res) { return res.json().catch(function () { return {}; }).then(function (body) { return { status: res.status, body: body }; }); })
+              .then(function (answer) {
+                test.disabled = false;
+                toast(answer.body.ok ? ui.alerts_test_ok : (answer.status === 409 ? ui.alerts_test_first : ui.save_failed + (answer.body.error ? ": " + answer.body.error : "")));
+              });
+          });
+          card.appendChild(h("div", "field", test));
+        }
         form.appendChild(card);
       });
       var about = h("dl", "kv");
-      [[ui.env_mcp, s.mcp ? ui.on : ui.off], ["nbuddyn", s.version]].forEach(function (row) {
+      [[ui.env_mcp, s.mcp ? ui.on : ui.off]].concat(s.secrets_key ? [[ui.env_secrets, ui["secrets_" + s.secrets_key]]] : []).concat([["nbuddyn", s.version]]).forEach(function (row) {
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });
       form.appendChild(h("div", "card", h("h2", null, ui.backup),
         h("div", { class: "field" }, h("a", { class: "btn", href: at("api/export/history"), download: "" }, icon("download"), ui.download_backup), h("div", "help", ui.backup_help))));
       if (state.me && !state.me.open) { form.appendChild(usersCard(ui)); form.appendChild(auditCard(ui)); }
-      form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: ui.env_only + ". " + ui.read_only })));
+      form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: (s.secrets_key === "data" ? ui.secrets_data_help + " " : "") + ui.read_only })));
       form.appendChild(h("div", "savebar", status, save));
       form.addEventListener("submit", function (ev) {
         ev.preventDefault();

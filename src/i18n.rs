@@ -60,6 +60,75 @@ pub const CHECKS: &[&str] = &[
     "stale_workflow",
 ];
 
+/// Heading of the new findings in an alert.
+pub fn alert_new(lang: Lang, count: usize) -> String {
+    match (lang, count) {
+        (Lang::En, 1) => "1 new finding:".into(),
+        (Lang::En, n) => format!("{n} new findings:"),
+        (Lang::Es, 1) => "1 hallazgo nuevo:".into(),
+        (Lang::Es, n) => format!("{n} hallazgos nuevos:"),
+        (Lang::Pt, 1) => "1 achado novo:".into(),
+        (Lang::Pt, n) => format!("{n} achados novos:"),
+    }
+}
+
+pub fn alert_resolved(lang: Lang, count: usize) -> String {
+    match (lang, count) {
+        (Lang::En, n) => format!("Resolved ({n}):"),
+        (Lang::Es, 1) => "Resuelto (1):".into(),
+        (Lang::Es, n) => format!("Resueltos ({n}):"),
+        (Lang::Pt, 1) => "Resolvido (1):".into(),
+        (Lang::Pt, n) => format!("Resolvidos ({n}):"),
+    }
+}
+
+pub fn alert_changes(lang: Lang, count: usize) -> String {
+    format!(
+        "{} ({count}):",
+        lang.pick(
+            "Workflow changes",
+            "Cambios en workflows",
+            "Mudanças em workflows"
+        )
+    )
+}
+
+pub fn alert_more(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::En => format!("and {count} more"),
+        Lang::Es => format!("y {count} más"),
+        Lang::Pt => format!("e mais {count}"),
+    }
+}
+
+pub fn alert_score(lang: Lang) -> &'static str {
+    lang.pick("Score", "Puntaje", "Pontuação")
+}
+
+pub fn alert_unreachable(lang: Lang) -> &'static str {
+    lang.pick(
+        "nbuddyn cannot read this n8n. It keeps trying.",
+        "nbuddyn no puede leer este n8n. Sigue intentando.",
+        "O nbuddyn não consegue ler este n8n. Continua tentando.",
+    )
+}
+
+pub fn alert_back(lang: Lang) -> &'static str {
+    lang.pick(
+        "nbuddyn can read this n8n again.",
+        "nbuddyn volvió a leer este n8n.",
+        "O nbuddyn voltou a ler este n8n.",
+    )
+}
+
+pub fn alert_test(lang: Lang) -> &'static str {
+    lang.pick(
+        "Test message: alerts are reaching this chat.",
+        "Mensaje de prueba: las alertas están llegando a este chat.",
+        "Mensagem de teste: os alertas estão chegando a este chat.",
+    )
+}
+
 /// What a change to a workflow is called.
 pub fn event_label(lang: Lang, kind: &str) -> &'static str {
     match kind {
@@ -608,6 +677,27 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub sec_alerts: &'static str,
+    pub alerts_help: &'static str,
+    pub set_telegram_token: &'static str,
+    pub help_telegram_token: &'static str,
+    pub set_telegram_chat: &'static str,
+    pub help_telegram_chat: &'static str,
+    pub set_webhook_url: &'static str,
+    pub help_webhook_url: &'static str,
+    pub set_alert_level: &'static str,
+    pub alert_level_high: &'static str,
+    pub alert_level_medium: &'static str,
+    pub set_alert_changes: &'static str,
+    pub alert_changes_true: &'static str,
+    pub alert_changes_false: &'static str,
+    pub alerts_test: &'static str,
+    pub alerts_test_ok: &'static str,
+    pub alerts_test_first: &'static str,
+    pub env_secrets: &'static str,
+    pub secrets_environment: &'static str,
+    pub secrets_data: &'static str,
+    pub secrets_data_help: &'static str,
     pub nav_credentials: &'static str,
     pub cred_help: &'static str,
     pub col_credential: &'static str,
@@ -1232,6 +1322,111 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        sec_alerts: lang.pick(
+            "Alerts",
+            "Alertas",
+            "Alertas",
+        ),
+        alerts_help: lang.pick(
+            "nbuddyn alerts when something changes: a new finding at or above the level you choose, one that goes away, or an n8n it can no longer read. Never about the whole report, and never twice in six hours for the same thing.",
+            "nbuddyn avisa cuando algo cambia: un hallazgo nuevo del nivel que elijas o más grave, uno que se resuelve, o un n8n que ya no puede leer. Nunca sobre todo el informe, y nunca dos veces en seis horas por lo mismo.",
+            "O nbuddyn avisa quando algo muda: um achado novo do nível que você escolher ou mais grave, um que se resolve, ou um n8n que ele não consegue mais ler. Nunca sobre o relatório inteiro, e nunca duas vezes em seis horas pela mesma coisa.",
+        ),
+        set_telegram_token: lang.pick(
+            "Telegram bot token",
+            "Token del bot de Telegram",
+            "Token do bot do Telegram",
+        ),
+        help_telegram_token: lang.pick(
+            "The token @BotFather gives when you create a bot. It is sealed when saved and never shown again.",
+            "El token que da @BotFather al crear un bot. Se cifra al guardarlo y no se vuelve a mostrar.",
+            "O token que o @BotFather dá ao criar um bot. É cifrado ao salvar e não é mostrado de novo.",
+        ),
+        set_telegram_chat: lang.pick(
+            "Telegram chat",
+            "Chat de Telegram",
+            "Chat do Telegram",
+        ),
+        help_telegram_chat: lang.pick(
+            "The chat's number, such as -1001234567890, or a public channel as @name. Add the bot to that chat first.",
+            "El número del chat, como -1001234567890, o un canal público como @nombre. Primero agregá el bot a ese chat.",
+            "O número do chat, como -1001234567890, ou um canal público como @nome. Primeiro adicione o bot a esse chat.",
+        ),
+        set_webhook_url: lang.pick(
+            "Webhook",
+            "Webhook",
+            "Webhook",
+        ),
+        help_webhook_url: lang.pick(
+            "Any address that takes a JSON POST: a Slack incoming webhook, an n8n webhook, a pager. Empty turns it off.",
+            "Cualquier dirección que reciba un POST con JSON: un webhook entrante de Slack, un webhook de n8n, un pager. Vacío lo apaga.",
+            "Qualquer endereço que receba um POST com JSON: um webhook de entrada do Slack, um webhook do n8n, um pager. Vazio desliga.",
+        ),
+        set_alert_level: lang.pick(
+            "Alert from",
+            "Avisar desde",
+            "Avisar a partir de",
+        ),
+        alert_level_high: lang.pick(
+            "Urgent only",
+            "Solo urgentes",
+            "Somente urgentes",
+        ),
+        alert_level_medium: lang.pick(
+            "Urgent and important",
+            "Urgentes e importantes",
+            "Urgentes e importantes",
+        ),
+        set_alert_changes: lang.pick(
+            "Workflow changes",
+            "Cambios en workflows",
+            "Mudanças em workflows",
+        ),
+        alert_changes_true: lang.pick(
+            "Alert too",
+            "Avisar también",
+            "Avisar também",
+        ),
+        alert_changes_false: lang.pick(
+            "Do not alert",
+            "No avisar",
+            "Não avisar",
+        ),
+        alerts_test: lang.pick(
+            "Send a test",
+            "Enviar una prueba",
+            "Enviar um teste",
+        ),
+        alerts_test_ok: lang.pick(
+            "Sent. Check the chat.",
+            "Enviado. Fijate en el chat.",
+            "Enviado. Confira o chat.",
+        ),
+        alerts_test_first: lang.pick(
+            "Save a destination first.",
+            "Primero guardá un destino.",
+            "Primeiro salve um destino.",
+        ),
+        env_secrets: lang.pick(
+            "Stored secrets",
+            "Secretos guardados",
+            "Segredos guardados",
+        ),
+        secrets_environment: lang.pick(
+            "sealed with NBUDDYN_SECRET_KEY",
+            "cifrados con NBUDDYN_SECRET_KEY",
+            "cifrados com NBUDDYN_SECRET_KEY",
+        ),
+        secrets_data: lang.pick(
+            "sealed with a key nbuddyn keeps in its data directory",
+            "cifrados con una clave que nbuddyn guarda en su directorio de datos",
+            "cifrados com uma chave que o nbuddyn guarda no diretório de dados",
+        ),
+        secrets_data_help: lang.pick(
+            "Database and Redis passwords saved here are sealed before they are written. For stronger protection set NBUDDYN_SECRET_KEY, so the key does not live next to what it protects.",
+            "Las claves de base y de Redis guardadas acá se cifran antes de escribirse. Para más protección definí NBUDDYN_SECRET_KEY, así la clave no vive al lado de lo que protege.",
+            "As senhas de banco e de Redis guardadas aqui são cifradas antes de serem gravadas. Para mais proteção defina NBUDDYN_SECRET_KEY, assim a chave não fica ao lado do que protege.",
         ),
         nav_credentials: lang.pick(
             "Credentials",
