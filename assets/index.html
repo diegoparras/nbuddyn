@@ -229,21 +229,29 @@
 
     var cluster = $("cluster");
     cluster.replaceChildren();
-    cluster.hidden = !(r.available && r.cluster);
+    var cells = [];
     if (r.available && r.cluster) {
       var c = r.cluster;
       var memory = c.redis_max_mb > 0 ? c.redis_used_mb + " / " + c.redis_max_mb + " MB" : c.redis_used_mb + " MB";
-      [[c.waiting, ui.queue_waiting, c.waiting >= 100 ? "caution" : ""],
-       [c.active, ui.queue_active, ""],
-       [c.workers, ui.workers, c.main + c.workers + c.webhooks > 0 && c.workers === 0 ? "risk" : ""],
-       [c.webhooks, ui.webhooks, ""],
-       [memory, ui.redis_memory + (c.redis_max_mb > 0 ? "" : " · " + ui.no_limit), ""]].forEach(function (t) {
-        var cell = el("div");
-        cell.appendChild(el("div", "n " + t[2], t[0]));
-        cell.appendChild(el("div", "t", t[1]));
-        cluster.appendChild(cell);
-      });
+      cells.push(
+        [c.waiting, ui.queue_waiting, c.waiting >= 100 ? "caution" : ""],
+        [c.active, ui.queue_active, ""],
+        [c.workers, ui.workers, c.main + c.workers + c.webhooks > 0 && c.workers === 0 ? "risk" : ""],
+        [c.webhooks, ui.webhooks, ""]);
     }
+    if (r.available && r.runners) {
+      cells.push([r.runners.alive + " / " + r.runners.total, ui.runners, r.runners.alive < r.runners.total ? "risk" : ""]);
+    }
+    if (r.available && r.cluster) {
+      cells.push([memory, ui.redis_memory + (r.cluster.redis_max_mb > 0 ? "" : " · " + ui.no_limit), ""]);
+    }
+    cluster.hidden = cells.length === 0;
+    cells.forEach(function (t) {
+      var cell = el("div");
+      cell.appendChild(el("div", "n " + t[2], t[0]));
+      cell.appendChild(el("div", "t", t[1]));
+      cluster.appendChild(cell);
+    });
 
     var out = $("groups");
     out.replaceChildren();

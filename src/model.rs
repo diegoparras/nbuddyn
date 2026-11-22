@@ -3,6 +3,7 @@
 use serde_json::Value;
 
 use crate::cluster::Cluster;
+use crate::runners::RunnerProbe;
 
 #[derive(Debug, Clone, Default)]
 pub struct Node {
@@ -56,6 +57,8 @@ pub struct Snapshot {
     pub waiting_executions: i64,
     /// `None` when no Redis is configured or it could not be read.
     pub cluster: Option<Cluster>,
+    /// One answer per configured task runner; empty when none is configured.
+    pub runners: Vec<RunnerProbe>,
 }
 
 impl Workflow {

@@ -2,7 +2,7 @@
 
 **A tiny, read-only cockpit for self-hosted n8n.** · [Español](#español) · [Português](#português)
 
-nbuddyn sits next to your n8n, reads its database and its Redis, and tells you what n8n does not:
+nbuddyn sits next to your n8n, reads its database and its Redis, checks its task runners, and tells you what n8n does not:
 which doors are open, what is failing in silence, and what will break.
 
 - **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n.
@@ -44,6 +44,16 @@ webhook processors are alive, and Redis' memory. Workers are found through the r
 n8n 3 keeps in Redis, so there is nothing to list by hand; on older n8n versions the
 member counts stay at zero and the worker check is skipped.
 
+With the task runners listed, it asks each one whether it is alive:
+
+| Severity | Check |
+|---|---|
+| High | A task runner is not answering its health check |
+
+n8n keeps no record of external task runners in its database or in Redis, so nbuddyn
+asks them directly. Each runner container already answers `GET /healthz` on port 5680
+for this purpose.
+
 Checks read the saved definition of each workflow. A webhook that validates its caller
 inside the workflow still shows as unauthenticated, because nbuddyn cannot see that logic.
 
@@ -82,6 +92,7 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | `NBUDDYN_DATABASE_URL` | required | Connection to n8n's Postgres. Use a read-only user. |
 | `NBUDDYN_PASSWORD` | required | Password for the page. The report lists your weak points; keep it private. |
 | `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
+| `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |
 | `NBUDDYN_USER` | `nbuddyn` | User name for the page. |
 | `NBUDDYN_LISTEN` | `0.0.0.0:8787` | Address to listen on. |
 | `NBUDDYN_INTERVAL_SECONDS` | `300` | Seconds between scans (minimum 10). |
@@ -94,14 +105,16 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 nbuddyn sends Redis only read commands (`LLEN`, `ZCARD`, `SMEMBERS`, `MGET`, `INFO`). If your
 Redis has ACLs, a user limited to `+@read +info` on `bull:*` and `n8n:*` is enough.
 
-The connections to Postgres and Redis are not encrypted in this version, so keep nbuddyn on
-the same private network as both. `GET /healthz` answers without a login, for health checks.
+Task runners get one request each per scan: `GET /healthz`, nothing else.
+
+The connections to Postgres, Redis and the runners are not encrypted in this version, so keep
+nbuddyn on the same private network as them. `GET /healthz` answers without a login, for health checks.
 
 ## Status
 
 One page and one JSON endpoint (`/api/report?lang=es`). Tested against the n8n 3.3 database
-schema and a Redis 7 server. Planned next: task runner health, history that survives n8n's
-pruning, a read-only MCP endpoint, and alerts.
+schema and a Redis 7 server. Planned next: history that survives n8n's pruning, a read-only MCP
+endpoint, and alerts.
 
 ## Development
 

@@ -5,6 +5,7 @@ mod db;
 mod i18n;
 mod model;
 mod radar;
+mod runners;
 mod web;
 
 use std::env;
@@ -18,6 +19,7 @@ use tokio::sync::RwLock;
 use crate::cluster::RedisConfig;
 use crate::i18n::Lang;
 use crate::model::Snapshot;
+use crate::runners::RunnerTarget;
 use crate::web::{AppState, Inventory, Scan};
 
 struct Config {
@@ -29,6 +31,8 @@ struct Config {
     lang: Lang,
     /// `None` leaves the queue and cluster checks out.
     redis: Option<RedisConfig>,
+    /// Empty leaves the task runner check out.
+    runners: Vec<RunnerTarget>,
 }
 
 impl Config {
@@ -75,8 +79,14 @@ impl Config {
             }
         };
 
+        let runners = match var("NBUDDYN_RUNNER_URLS") {
+            None => Vec::new(),
+            Some(list) => runners::parse_targets(&list)?,
+        };
+
         Ok(Self {
             redis,
+            runners,
             database_url,
             listen: var("NBUDDYN_LISTEN").unwrap_or_else(|| "0.0.0.0:8787".into()),
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
@@ -123,6 +133,7 @@ async fn main() -> ExitCode {
         state.clone(),
         config.database_url,
         config.redis,
+        config.runners,
         config.interval,
     ));
 
@@ -144,6 +155,7 @@ async fn scan_forever(
     state: Arc<AppState>,
     database_url: String,
     redis: Option<RedisConfig>,
+    runners: Vec<RunnerTarget>,
     interval: Duration,
 ) {
     loop {
@@ -165,6 +177,7 @@ async fn scan_forever(
                     },
                 };
                 *state.cluster_error.write().await = cluster_error;
+                snapshot.runners = runners::probe_all(&runners).await;
                 let scan = evaluate(&snapshot);
                 println!(
                     "scan ok: score {} with {} findings",
@@ -200,6 +213,7 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
             waiting: snapshot.waiting_executions,
         },
         cluster: snapshot.cluster.clone(),
+        runners: snapshot.runners.clone(),
         findings,
     }
 }

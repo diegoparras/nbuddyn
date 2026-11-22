@@ -15,6 +15,7 @@ use tokio::sync::RwLock;
 use crate::cluster::Cluster;
 use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::radar::{Finding, Severity};
+use crate::runners::RunnerProbe;
 
 /// Result of the latest scan, kept in memory.
 #[derive(Debug, Clone, Default)]
@@ -24,6 +25,7 @@ pub struct Scan {
     pub inventory: Inventory,
     pub findings: Vec<Finding>,
     pub cluster: Option<Cluster>,
+    pub runners: Vec<RunnerProbe>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -88,6 +90,9 @@ struct Report {
     cluster: Option<ClusterView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cluster_error: Option<String>,
+    /// Task runners that answered; absent when none is configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runners: Option<RunnersView>,
     groups: Vec<Group>,
     ui: UiText,
 }
@@ -123,6 +128,12 @@ impl ClusterView {
             eviction_policy: cluster.redis.eviction_policy.clone(),
         }
     }
+}
+
+#[derive(Serialize)]
+struct RunnersView {
+    alive: usize,
+    total: usize,
 }
 
 /// One annunciator light: an area of the instance and how bad it looks.
@@ -189,6 +200,9 @@ const QUEUE_LIGHT: (&str, &[&str]) = (
     ],
 );
 
+/// The runners light exists only when runners are being asked.
+const RUNNERS_LIGHT: (&str, &[&str]) = ("runners", &["runner_down"]);
+
 async fn report(State(state): State<Arc<AppState>>, Query(q): Query<ReportQuery>) -> Json<Report> {
     let lang = q
         .lang
@@ -224,6 +238,7 @@ fn build_report(
     let lights = LIGHTS
         .iter()
         .chain(cluster.is_some().then_some(&QUEUE_LIGHT))
+        .chain((!scan.runners.is_empty()).then_some(&RUNNERS_LIGHT))
         .map(|(key, checks)| {
             let hits: Vec<&Finding> = scan
                 .findings
@@ -244,6 +259,11 @@ fn build_report(
             }
         })
         .collect();
+
+    let runners = (!scan.runners.is_empty()).then(|| RunnersView {
+        alive: scan.runners.iter().filter(|r| r.problem.is_none()).count(),
+        total: scan.runners.len(),
+    });
 
     let groups = group(lang, scan.findings);
     let urgent_titles: Vec<String> = groups
@@ -274,6 +294,7 @@ fn build_report(
         inventory: scan.inventory,
         cluster,
         cluster_error,
+        runners,
         groups,
         ui: ui_text(lang),
     }
@@ -388,6 +409,7 @@ mod tests {
             inventory: Inventory::default(),
             findings,
             cluster: None,
+            runners: Vec::new(),
         }
     }
 
@@ -554,6 +576,45 @@ mod tests {
         assert!(report.cluster.is_none());
         assert!(report.lights.iter().all(|l| l.key != "queue"));
         assert_eq!(report.cluster_error.as_deref(), Some("cannot connect"));
+    }
+
+    #[test]
+    fn runners_add_their_count_and_their_light() {
+        let mut scan = scan_of(
+            80,
+            vec![Finding {
+                check: "runner_down",
+                severity: Severity::High,
+                workflow: None,
+                node: None,
+                detail: Some("n8n_runner-02 · cannot connect".into()),
+                active: None,
+            }],
+        );
+        scan.runners = vec![
+            RunnerProbe {
+                name: "n8n_runner-01".into(),
+                problem: None,
+            },
+            RunnerProbe {
+                name: "n8n_runner-02".into(),
+                problem: Some("cannot connect".into()),
+            },
+        ];
+        let report = build_report(Lang::Es, Some(scan), None, None);
+
+        let view = report.runners.as_ref().expect("runners view");
+        assert_eq!((view.alive, view.total), (1, 2));
+        let light = report.lights.last().expect("runners light");
+        assert_eq!(
+            (light.key, light.count, light.level),
+            ("runners", 1, "high")
+        );
+        assert_eq!(report.groups[0].title, "Un runner no responde");
+
+        let none = build_report(Lang::Es, Some(scan_of(100, vec![])), None, None);
+        assert!(none.runners.is_none());
+        assert!(none.lights.iter().all(|l| l.key != "runners"));
     }
 
     #[test]

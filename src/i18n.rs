@@ -56,6 +56,7 @@ pub const CHECKS: &[&str] = &[
     "queue_backlog",
     "no_workers",
     "version_mismatch",
+    "runner_down",
 ];
 
 /// Heading for a group of `count` findings of one check, such as
@@ -233,6 +234,18 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
             "El cluster corre versiones distintas de n8n",
             "O cluster está rodando versões diferentes do n8n",
         )),
+        "runner_down" => (
+            lang.pick(
+                "A task runner is not answering",
+                "Un runner no responde",
+                "Um runner não responde",
+            ),
+            lang.pick(
+                "{n} task runners are not answering",
+                "{n} runners no responden",
+                "{n} runners não respondem",
+            ),
+        ),
         _ => ("", ""),
     };
     if count == 1 {
@@ -330,6 +343,11 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "Main, workers y webhooks tienen que correr la misma versión. Terminá la actualización en los que quedaron atrás.",
             "Main, workers e webhooks precisam rodar a mesma versão. Conclua a atualização nos que ficaram para trás.",
         ),
+        "runner_down" => lang.pick(
+            "Code nodes on its worker will fail or wait until it is back. Check that runner's service and its logs.",
+            "Los nodos Code de su worker van a fallar o quedar esperando hasta que vuelva. Revisá el servicio de ese runner y sus logs.",
+            "Os nós Code do worker dele vão falhar ou ficar esperando até ele voltar. Verifique o serviço desse runner e os logs.",
+        ),
         _ => "",
     }
 }
@@ -409,6 +427,8 @@ pub struct UiText {
     pub light_silent: &'static str,
     pub light_secrets: &'static str,
     pub light_queue: &'static str,
+    pub light_runners: &'static str,
+    pub runners: &'static str,
     pub queue_waiting: &'static str,
     pub queue_active: &'static str,
     pub workers: &'static str,
@@ -456,6 +476,8 @@ pub fn ui_text(lang: Lang) -> UiText {
         light_silent: lang.pick("No alert", "Sin aviso", "Sem aviso"),
         light_secrets: lang.pick("Secrets", "Claves", "Chaves"),
         light_queue: lang.pick("Queue", "Cola", "Fila"),
+        light_runners: "Runners",
+        runners: lang.pick("runners alive", "runners vivos", "runners ativos"),
         queue_waiting: lang.pick(
             "waiting in queue",
             "en espera en la cola",

@@ -37,6 +37,7 @@ pub async fn read_snapshot(database_url: &str) -> Result<Snapshot, DbError> {
 
     Ok(Snapshot {
         cluster: None,
+        runners: Vec::new(),
         workflows: workflows(&client).await?,
         credentials: credentials(&client).await?,
         error_counts: error_counts(&client).await?,

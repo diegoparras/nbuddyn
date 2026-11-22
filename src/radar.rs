@@ -172,6 +172,20 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
         check_cluster(cluster, &mut findings);
     }
 
+    // A runner that is down takes the Code nodes of its worker with it.
+    for runner in &snapshot.runners {
+        if let Some(problem) = &runner.problem {
+            findings.push(Finding {
+                check: "runner_down",
+                severity: Severity::High,
+                workflow: None,
+                node: None,
+                detail: Some(format!("{} · {problem}", runner.name)),
+                active: None,
+            });
+        }
+    }
+
     if snapshot.users_without_mfa > 0 {
         findings.push(Finding {
             check: "no_mfa",
