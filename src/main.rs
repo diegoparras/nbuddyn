@@ -130,8 +130,9 @@ async fn scan_forever(state: Arc<AppState>, database_url: String, interval: Dura
                 *state.last_error.write().await = None;
             }
             Err(e) => {
-                eprintln!("scan failed: {e}");
-                *state.last_error.write().await = Some(e.to_string());
+                let reason = db::describe(&e);
+                eprintln!("scan failed: {reason}");
+                *state.last_error.write().await = Some(reason);
             }
         }
         tokio::time::sleep(interval).await;

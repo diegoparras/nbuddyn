@@ -7,6 +7,24 @@ use crate::model::{Credential, ErrorCount, Snapshot, StuckExecution, Workflow};
 
 pub type DbError = tokio_postgres::Error;
 
+/// The server's own message when there is one ("password authentication failed
+/// for user ..."), instead of the driver's generic "db error".
+pub fn describe(error: &DbError) -> String {
+    match error.as_db_error() {
+        Some(db) => db.message().to_owned(),
+        None => {
+            let mut text = error.to_string();
+            let mut source = std::error::Error::source(error);
+            while let Some(cause) = source {
+                text.push_str(": ");
+                text.push_str(&cause.to_string());
+                source = cause.source();
+            }
+            text
+        }
+    }
+}
+
 pub async fn read_snapshot(database_url: &str) -> Result<Snapshot, DbError> {
     let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
     // The connection object drives the socket; it ends when the client is dropped.
