@@ -11,6 +11,7 @@ mod radar;
 mod runners;
 mod settings;
 mod sqlite;
+mod tls;
 mod web;
 
 use std::collections::HashMap;
@@ -68,6 +69,8 @@ impl Config {
                 .parse::<u64>()
                 .map_err(|_| format!("{name} must be a number")),
         };
+
+        tls::load_extra_roots(var("NBUDDYN_CA_FILE").as_deref())?;
 
         let mcp_token = var("NBUDDYN_MCP_TOKEN");
         if mcp_token.as_ref().is_some_and(|t| t.len() < 24) {

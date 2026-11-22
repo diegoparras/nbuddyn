@@ -89,6 +89,22 @@ What protects the login and the page:
 
 Scripts can still send a name and password with HTTP Basic on every API request.
 
+### Encrypted connections to n8n's database and Redis
+
+For Postgres, `sslmode` in the address works as it does everywhere else:
+
+| `sslmode` | What nbuddyn does |
+|---|---|
+| none, or `prefer` | Encrypts when the server offers it. |
+| `require` | Encrypts or does not connect. The server's certificate is not checked. |
+| `verify-full` | Encrypts and only talks to a server whose certificate checks out. |
+| `disable` | Never encrypts. |
+
+For Redis, `rediss://` instead of `redis://` encrypts and checks the certificate.
+
+Certificates are checked against the public authorities. If your server uses a private
+one, as most managed databases do, give nbuddyn its certificate with `NBUDDYN_CA_FILE`.
+
 ## What changed
 
 nbuddyn compares every scan with the one before and keeps a log, shown under **Activity**:
@@ -207,8 +223,9 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 | `NBUDDYN_PASSWORD` | required | Password of the first administrator. The report lists your weak points; keep it private. |
 | `NBUDDYN_NAME` | `n8n` | What the first instance is called on the page. |
 | `NBUDDYN_N8N_URL` | unset | Where n8n's editor is, such as `https://n8n.example.com`. Findings then link to their workflow. |
-| `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
+| `NBUDDYN_REDIS_URL` | unset | n8n's Redis, as `redis://[user:password@]host[:port][/db]`, or `rediss://` to encrypt. Enables the queue and cluster checks. Percent-encode `@`, `/` and `%` in the password. |
 | `NBUDDYN_RUNNER_URLS` | unset | External task runners, comma-separated, as `host`, `host:port` or `http://host:port/path`. Port 5680 and `/healthz` by default. Enables the runner check. |
+| `NBUDDYN_CA_FILE` | unset | A PEM file with extra certificate authorities to trust for Postgres (`sslmode=verify-full`) and Redis (`rediss://`). |
 | `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history, the saved settings and the accepted findings live. Mount a volume there, or they are lost with the container. Unset outside the image: no history, and nothing can be saved from the page. |
 | `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
 | `NBUDDYN_TIMEZONE` | the database's | Decides where a day ends, such as `America/Argentina/Buenos_Aires`. |
@@ -225,10 +242,8 @@ Open `http://localhost:8787` and log in as `nbuddyn`.
 nbuddyn sends Redis only read commands (`LLEN`, `ZCARD`, `SMEMBERS`, `MGET`, `INFO`). If your
 Redis has ACLs, a user limited to `+@read +info` on `bull:*` and `n8n:*` is enough.
 
-Task runners get one request each per scan: `GET /healthz`, nothing else.
-
-The connections to Postgres, Redis and the runners are not encrypted in this version, so keep
-nbuddyn on the same private network as them. `GET /healthz` answers without a login, for health checks.
+Task runners get one request each per scan: `GET /healthz`, nothing else, over plain
+http: keep nbuddyn on the same private network as them. `GET /healthz` answers without a login, for health checks.
 
 ## Status
 

@@ -4,11 +4,14 @@
 
 use std::path::PathBuf;
 
+use tokio_postgres::config::SslMode;
 use tokio_postgres::{Client, NoTls};
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 use crate::history::{Outcome, Tally};
 use crate::model::{Credential, ErrorCount, Snapshot, StuckExecution, Workflow};
 use crate::sqlite;
+use crate::tls::{self, PostgresTls, Trust};
 
 type DbError = tokio_postgres::Error;
 
@@ -50,8 +53,7 @@ pub async fn connect(database_url: &str, timezone: Option<&str>) -> Result<Sourc
         Some(path) => Ok(Source::Sqlite(path)),
         None => pg_connect(database_url, timezone)
             .await
-            .map(Source::Postgres)
-            .map_err(|e| describe(&e)),
+            .map(Source::Postgres),
     }
 }
 
@@ -114,21 +116,47 @@ fn describe(error: &DbError) -> String {
     }
 }
 
-async fn pg_connect(database_url: &str, timezone: Option<&str>) -> Result<Client, DbError> {
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+async fn pg_connect(database_url: &str, timezone: Option<&str>) -> Result<Client, String> {
+    let (url, wanted) = tls::split_sslmode(database_url)?;
+    let mut config: tokio_postgres::Config = url.parse().map_err(|e: DbError| describe(&e))?;
     // The connection object drives the socket; it ends when the client is dropped.
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    client
-        .batch_execute("SET default_transaction_read_only = on")
-        .await?;
-    if let Some(zone) = timezone {
-        // `Config` only lets through names made of letters, digits and `/_+-`.
+    let client = match wanted {
+        PostgresTls::Off => {
+            config.ssl_mode(SslMode::Disable);
+            let (client, connection) = config.connect(NoTls).await.map_err(|e| describe(&e))?;
+            tokio::spawn(connection);
+            client
+        }
+        encrypted => {
+            let trust = if encrypted == PostgresTls::Verified {
+                Trust::Verified
+            } else {
+                Trust::Any
+            };
+            config.ssl_mode(if encrypted == PostgresTls::IfOffered {
+                SslMode::Prefer
+            } else {
+                SslMode::Require
+            });
+            let connector = MakeRustlsConnect::new(tls::client_config(trust)?);
+            let (client, connection) = config.connect(connector).await.map_err(|e| describe(&e))?;
+            tokio::spawn(connection);
+            client
+        }
+    };
+    let prepare = async {
         client
-            .batch_execute(&format!("SET TIME ZONE '{zone}'"))
+            .batch_execute("SET default_transaction_read_only = on")
             .await?;
-    }
+        if let Some(zone) = timezone {
+            // Only names made of letters, digits and `/_+-` get this far.
+            client
+                .batch_execute(&format!("SET TIME ZONE '{zone}'"))
+                .await?;
+        }
+        Ok::<(), DbError>(())
+    };
+    prepare.await.map_err(|e| describe(&e))?;
     Ok(client)
 }
 

@@ -10,11 +10,15 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
+use crate::tls::{self, Trust};
+
 /// Where the n8n Redis is and which keys n8n uses in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedisConfig {
     pub host: String,
     pub port: u16,
+    /// True for `rediss://`: encrypted, with the server's certificate checked.
+    pub tls: bool,
     pub username: Option<String>,
     pub password: Option<String>,
     pub db: u32,
@@ -30,9 +34,13 @@ impl RedisConfig {
     /// Parses `redis://[user:password@]host[:port][/db]`. The password may be
     /// percent-encoded.
     pub fn parse(url: &str) -> Result<Self, String> {
-        let rest = url
-            .strip_prefix("redis://")
-            .ok_or("NBUDDYN_REDIS_URL must start with redis://")?;
+        let (tls, rest) = match (url.strip_prefix("rediss://"), url.strip_prefix("redis://")) {
+            (Some(rest), _) => (true, rest),
+            (None, Some(rest)) => (false, rest),
+            (None, None) => {
+                return Err("the Redis address must start with redis:// or rediss://".into())
+            }
+        };
         let (auth, location) = match rest.rsplit_once('@') {
             Some((auth, location)) => (Some(auth), location),
             None => (None, rest),
@@ -70,6 +78,7 @@ impl RedisConfig {
         Ok(Self {
             host: host.to_owned(),
             port,
+            tls,
             username,
             password,
             db,
@@ -172,6 +181,24 @@ async fn read(config: &RedisConfig) -> Result<Cluster, String> {
                 config.host, config.port
             )
         })?;
+    let stream: Box<dyn Stream> = if config.tls {
+        let name = rustls::pki_types::ServerName::try_from(config.host.clone()).map_err(|_| {
+            format!(
+                "{} is not a name a certificate can be checked against",
+                config.host
+            )
+        })?;
+        let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls::client_config(
+            Trust::Verified,
+        )?));
+        let encrypted = connector
+            .connect(name, stream)
+            .await
+            .map_err(|e| format!("cannot open an encrypted connection to Redis: {e}"))?;
+        Box::new(encrypted)
+    } else {
+        Box::new(stream)
+    };
     let mut conn = Connection {
         stream: BufReader::new(stream),
     };
@@ -306,8 +333,12 @@ impl Reply {
     }
 }
 
+/// A connection to Redis, plain or encrypted.
+trait Stream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Stream for T {}
+
 struct Connection {
-    stream: BufReader<TcpStream>,
+    stream: BufReader<Box<dyn Stream>>,
 }
 
 impl Connection {
