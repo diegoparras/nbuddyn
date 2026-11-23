@@ -220,7 +220,7 @@ docker compose up -d
 ```
 
 En Easypanel, tocá **Deploy** otra vez. Para quedarte en una versión elegida, usá una
-etiqueta como `ghcr.io/diegoparras/nbuddyn:0.19.0` en lugar de `latest`.
+etiqueta como `ghcr.io/diegoparras/nbuddyn:0.20.0` en lugar de `latest`.
 
 Después de actualizar **n8n**, verificá que nbuddyn lo siga pudiendo leer:
 

@@ -217,7 +217,7 @@ docker compose up -d
 ```
 
 On Easypanel, press **Deploy** again. To stay on a version you chose, use a tag such as
-`ghcr.io/diegoparras/nbuddyn:0.19.0` instead of `latest`.
+`ghcr.io/diegoparras/nbuddyn:0.20.0` instead of `latest`.
 
 After updating **n8n**, check that nbuddyn can still read it:
 

@@ -3,7 +3,7 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
-## Unreleased
+## 0.20.0
 
 - New check: the main n8n process is not running, while workers still are.
 - An assistant that registers and is never allowed in is forgotten after a day.
