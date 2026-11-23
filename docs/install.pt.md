@@ -145,10 +145,15 @@ Para adicionar o nbuddyn ao compose que o seu n8n já tem, copie para lá o serv
 Para criar o usuário somente leitura da etapa 1, abra o serviço do Postgres no
 Easypanel, abra o console dele, execute `psql -U postgres -d n8n` e cole o SQL.
 
-Se o seu n8n no Easypanel usa SQLite, o nbuddyn precisa enxergar a pasta de dados do n8n
-em `/n8n`. O Easypanel dá a cada serviço os seus próprios volumes, então os dois serviços
-precisam de um bind mount para a mesma pasta do servidor. Essa configuração ainda não
-foi testada.
+**Se o seu n8n no Easypanel usa SQLite**, o nbuddyn precisa enxergar a pasta de dados do
+n8n. No serviço do nbuddyn vá em **Mounts → Add Bind Mount**:
+
+- Host path: `/var/lib/docker/volumes/PROJETO_SERVICO_VOLUME/_data`
+- Mount path: `/n8n`
+
+`PROJETO_SERVICO_VOLUME` são os nomes do projeto, do serviço e do volume do n8n unidos
+com `_`: para o projeto `acme`, o serviço `n8n` e o volume `data`, é `acme_n8n_data`.
+Depois defina `NBUDDYN_DATABASE_URL=sqlite:/n8n/database.sqlite` e faça o deploy.
 
 ### Outros painéis
 

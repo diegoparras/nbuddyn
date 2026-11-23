@@ -144,9 +144,15 @@ the `nbuddyn_data` volume into it. It then shares n8n's network without anything
 To create the read-only user from step 1, open the Postgres service in Easypanel, open
 its console, run `psql -U postgres -d n8n` and paste the SQL.
 
-If your n8n on Easypanel uses SQLite, nbuddyn has to see n8n's data folder at `/n8n`.
-Easypanel gives each service its own volumes, so both services need a bind mount to the
-same folder on the server. This setup has not been tested yet.
+**If your n8n on Easypanel uses SQLite**, nbuddyn has to see n8n's data folder. In
+nbuddyn's service go to **Mounts → Add Bind Mount**:
+
+- Host path: `/var/lib/docker/volumes/PROJECT_SERVICE_VOLUME/_data`
+- Mount path: `/n8n`
+
+`PROJECT_SERVICE_VOLUME` is n8n's project, service and volume names joined with `_`: for
+project `acme`, service `n8n` and volume `data`, it is `acme_n8n_data`. Then set
+`NBUDDYN_DATABASE_URL=sqlite:/n8n/database.sqlite` and deploy.
 
 ### Other panels
 
