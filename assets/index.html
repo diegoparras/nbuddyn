@@ -647,6 +647,24 @@
     renderFindings();
   }
 
+  /* Something to paste into n8n that settles a whole group of findings. */
+  function recipeRow(recipe, ui) {
+    var button = h("button", { type: "button", class: "btn small", text: recipe.label });
+    button.addEventListener("click", function () {
+      var done = function () { toast(ui.copied); };
+      var fallback = function () {
+        var area = h("textarea", { value: recipe.text, readOnly: true, style: "position:fixed;left:-999px;top:0" });
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand("copy"); done(); } catch (e) {}
+        area.remove();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(recipe.text).then(done, fallback);
+      else fallback();
+    });
+    return h("div", "advice", h("b", null, ui.recipe_label), h("span", null, recipe.steps, h("span", { style: "display:block;margin-top:10px" }, button)));
+  }
+
   /* The n8n version that is running and, when someone asked, whether a newer one is out. */
   function versionNote(r, ui) {
     if (!r.n8n_version) return null;
@@ -956,7 +974,8 @@
             list.appendChild(li);
           });
           var gbody = h("div", "gbody", h("div", "advice", h("b", null, ui.what_to_do), h("span", null, g.advice)),
-            g.caveat ? h("div", "advice caveat", h("b", null, ui.caveat_label), h("span", null, g.caveat)) : null, list);
+            g.caveat ? h("div", "advice caveat", h("b", null, ui.caveat_label), h("span", null, g.caveat)) : null,
+            g.recipe ? recipeRow(g.recipe, ui) : null, list);
           if (items.length > 8) gbody.appendChild(h("div", "morebar", h("button", { type: "button", class: "linkbtn", text: all ? ui.show_less : ui.show_all + " (" + items.length + ")", on: { click: function () { state.expanded[id] = !all; renderFindings(); } } })));
           if (g.count > g.items.length && !query) gbody.appendChild(h("div", "morebar", h("span", "hint", ui.list_cut.replace("{n}", num(g.count - g.items.length)))));
           card.appendChild(gbody);

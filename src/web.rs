@@ -919,6 +919,9 @@ struct Group {
     certainty: &'static str,
     /// Why it may not be a problem. Empty when `certain`.
     caveat: &'static str,
+    /// Something to paste into n8n that settles the whole group, if there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipe: Option<i18n::Recipe>,
     items: Vec<Item>,
 }
 
@@ -1214,6 +1217,7 @@ fn group(lang: Lang, findings: Vec<Finding>) -> Vec<Group> {
                     "likely"
                 },
                 caveat: i18n::caveat(lang, check),
+                recipe: i18n::recipe(lang, check),
                 items: vec![item],
             }),
         }

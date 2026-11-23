@@ -23,6 +23,11 @@ nbuddyn is an independent project. It is not affiliated with or endorsed by n8n 
 | Low | Credentials no workflow uses |
 | Info | Nodes that run system commands |
 
+Where one thing settles a finding for every workflow, nbuddyn hands it over ready to
+paste. "Active workflows without an error workflow" has a button that copies a two-node
+error workflow: paste it on n8n's canvas, pick your Telegram credential, and assign it.
+It carries no credential of its own.
+
 With Redis configured, it also watches the queue and the cluster:
 
 | Severity | Check |

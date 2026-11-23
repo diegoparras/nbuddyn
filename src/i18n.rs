@@ -447,6 +447,78 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
 }
 
 /// What to do about a check.
+/// Something ready to paste into n8n that settles a finding, where one
+/// thing settles it for everybody.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Recipe {
+    /// What the button says.
+    pub label: &'static str,
+    /// What to do with it once it is copied.
+    pub steps: &'static str,
+    /// The text to copy: nodes and connections, as n8n's canvas takes them.
+    pub text: String,
+}
+
+pub fn recipe(lang: Lang, check: &str) -> Option<Recipe> {
+    if check != "no_error_workflow" {
+        return None;
+    }
+    let notify = lang.pick(
+        "Tell me on Telegram",
+        "Avisar por Telegram",
+        "Avisar pelo Telegram",
+    );
+    let failed = lang.pick("Workflow failed", "Falló el workflow", "O workflow falhou");
+    let node = lang.pick("Node", "Nodo", "Nó");
+    let error = lang.pick("Error", "Error", "Erro");
+    // A failure in the trigger itself arrives under `trigger`, not `execution`.
+    let message = format!(
+        "=⚠️ {failed}: {{{{ $json.workflow.name }}}}\n\n{node}: {{{{ $json.execution?.lastNodeExecuted ?? '-' }}}}\n{error}: {{{{ $json.execution?.error?.message ?? $json.trigger?.error?.message ?? '-' }}}}\n\n{{{{ $json.execution?.url ?? '' }}}}"
+    );
+    let workflow = serde_json::json!({
+        "nodes": [
+            {
+                "parameters": {},
+                "id": "6f1d2c1e-0b7a-4c55-9d1a-nbuddyn00001",
+                "name": "Error Trigger",
+                "type": "n8n-nodes-base.errorTrigger",
+                "typeVersion": 1,
+                "position": [0, 0]
+            },
+            {
+                "parameters": {
+                    "resource": "message",
+                    "operation": "sendMessage",
+                    "chatId": lang.pick("YOUR_CHAT_ID", "TU_CHAT_ID", "SEU_CHAT_ID"),
+                    "text": message,
+                    "additionalFields": { "appendAttribution": false }
+                },
+                "id": "6f1d2c1e-0b7a-4c55-9d1a-nbuddyn00002",
+                "name": notify,
+                "type": "n8n-nodes-base.telegram",
+                "typeVersion": 1.2,
+                "position": [240, 0]
+            }
+        ],
+        "connections": {
+            "Error Trigger": { "main": [[{ "node": notify, "type": "main", "index": 0 }]] }
+        }
+    });
+    Some(Recipe {
+        label: lang.pick(
+            "Copy an error workflow",
+            "Copiar un workflow de error",
+            "Copiar um workflow de erro",
+        ),
+        steps: lang.pick(
+            "Open a new workflow in n8n, click the canvas and paste. In the Telegram node pick your credential and write your chat id, then save. Last, in each workflow listed here: Settings → Error workflow, and choose it. Not on Telegram? Swap the second node for Slack, e-mail or whatever you use.",
+            "Abrí un workflow nuevo en n8n, hacé clic en el lienzo y pegá. En el nodo de Telegram elegí tu credencial y escribí tu número de chat, y guardá. Por último, en cada workflow de esta lista: Ajustes → Workflow de error, y elegilo. ¿No usás Telegram? Cambiá el segundo nodo por Slack, correo o lo que uses.",
+            "Abra um workflow novo no n8n, clique na tela e cole. No nó do Telegram escolha a sua credencial e escreva o seu chat id, e salve. Por fim, em cada workflow desta lista: Configurações → Workflow de erro, e escolha-o. Não usa Telegram? Troque o segundo nó por Slack, e-mail ou o que você usa.",
+        ),
+        text: serde_json::to_string_pretty(&workflow).unwrap_or_default(),
+    })
+}
+
 pub fn advice(lang: Lang, check: &str) -> &'static str {
     match check {
         "open_ai_entry" => lang.pick(
@@ -855,6 +927,7 @@ pub struct UiText {
     pub update_current: &'static str,
     pub update_failed: &'static str,
     pub update_newer: &'static str,
+    pub recipe_label: &'static str,
     pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
@@ -1938,6 +2011,7 @@ pub fn ui_text(lang: Lang) -> UiText {
             "hay una más nueva:",
             "há uma mais nova:",
         ),
+        recipe_label: lang.pick("Shortcut", "Atajo", "Atalho"),
         env_tested: lang.pick(
             "Tested with n8n",
             "Probado con n8n",
@@ -2438,6 +2512,26 @@ mod tests {
                 "{check} advice not translated to Portuguese"
             );
         }
+    }
+
+    #[test]
+    fn the_error_workflow_to_paste_is_what_the_canvas_takes() {
+        for lang in [Lang::En, Lang::Es, Lang::Pt] {
+            let recipe = recipe(lang, "no_error_workflow").unwrap();
+            let pasted: serde_json::Value = serde_json::from_str(&recipe.text).unwrap();
+            let nodes = pasted["nodes"].as_array().unwrap();
+            assert_eq!(nodes.len(), 2);
+            assert_eq!(nodes[0]["type"], "n8n-nodes-base.errorTrigger");
+            assert_eq!(nodes[1]["type"], "n8n-nodes-base.telegram");
+            // The connection names the second node exactly as it is called.
+            let target = &pasted["connections"]["Error Trigger"]["main"][0][0]["node"];
+            assert_eq!(target, &nodes[1]["name"]);
+            let text = nodes[1]["parameters"]["text"].as_str().unwrap();
+            assert!(text.starts_with('=') && text.contains("{{ $json.workflow.name }}"));
+            // It carries no credential and no secret: those are chosen in n8n.
+            assert!(nodes[1].get("credentials").is_none());
+        }
+        assert_eq!(recipe(Lang::En, "no_mfa"), None);
     }
 
     #[test]

@@ -3,6 +3,11 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## Unreleased
+
+- The finding about workflows with no error workflow comes with one to copy and paste
+  into n8n: it sends the failure to Telegram.
+
 ## 0.22.0
 
 - nbuddyn shows which n8n version is running, with or without Redis.
