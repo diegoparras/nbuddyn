@@ -28,6 +28,7 @@ With Redis configured, it also watches the queue and the cluster:
 | Severity | Check |
 |---|---|
 | High | No worker is running |
+| High | The main n8n process is not running |
 | High | Main, workers and webhook processors on different n8n versions |
 | High | Redis almost out of memory (80% of its limit or more) |
 | High / Medium | Executions piling up in the queue (100 waiting, urgent from 1000) |

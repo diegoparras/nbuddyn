@@ -5,6 +5,7 @@ while the first number is 0, the second one changes when something you rely on m
 
 ## Unreleased
 
+- New check: the main n8n process is not running, while workers still are.
 - An assistant that registers and is never allowed in is forgotten after a day.
 
 ## 0.19.0

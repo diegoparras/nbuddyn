@@ -564,6 +564,16 @@ fn check_cluster(cluster: &Cluster, out: &mut Vec<Finding>) {
         ));
     }
 
+    // The same list tells when the main process is gone: workers may keep
+    // answering while nothing schedules, activates or serves the editor.
+    if !cluster.members.is_empty() && cluster.count("main") == 0 {
+        out.push(on_instance(
+            "no_main",
+            Severity::High,
+            cluster.members.len().to_string(),
+        ));
+    }
+
     let versions = cluster.versions();
     if versions.len() > 1 {
         out.push(on_instance(
@@ -983,6 +993,17 @@ mod tests {
                 &[("main", "3.3.0"), ("webhook", "3.3.0")]
             )),
             vec![("no_workers", Severity::High, "7".to_owned())]
+        );
+        // Workers alone: the main process is gone.
+        assert_eq!(
+            cluster_findings(cluster_of(
+                0,
+                "noeviction",
+                0,
+                0,
+                &[("worker", "3.3.0"), ("webhook", "3.3.0")]
+            )),
+            vec![("no_main", Severity::High, "2".to_owned())]
         );
         assert_eq!(
             cluster_findings(cluster_of(

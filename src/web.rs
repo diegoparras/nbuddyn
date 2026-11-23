@@ -846,6 +846,7 @@ const QUEUE_LIGHT: (&str, &[&str]) = (
         "redis_memory_high",
         "queue_backlog",
         "no_workers",
+        "no_main",
         "version_mismatch",
     ],
 );

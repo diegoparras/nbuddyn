@@ -54,6 +54,7 @@ pub const CHECKS: &[&str] = &[
     "redis_memory_high",
     "queue_backlog",
     "no_workers",
+    "no_main",
     "version_mismatch",
     "runner_down",
     "stale_workflow",
@@ -396,6 +397,11 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
             "No hay ningún worker en marcha",
             "Nenhum worker está em execução",
         )),
+        "no_main" => same(lang.pick(
+            "The main n8n process is not running",
+            "El proceso principal de n8n no está en marcha",
+            "O processo principal do n8n não está em execução",
+        )),
         "version_mismatch" => same(lang.pick(
             "The cluster is running mixed n8n versions",
             "El cluster corre versiones distintas de n8n",
@@ -516,6 +522,11 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "Queued executions will wait until a worker starts. Check the worker services.",
             "Las ejecuciones en cola van a esperar hasta que arranque un worker. Revisá los servicios de workers.",
             "As execuções na fila vão esperar até um worker iniciar. Verifique os serviços de workers.",
+        ),
+        "no_main" => lang.pick(
+            "Nothing is scheduled or activated and the editor does not answer until it is back. Check the main n8n service and its log.",
+            "Nada se programa ni se activa y el editor no responde hasta que vuelva. Revisá el servicio principal de n8n y su registro.",
+            "Nada é agendado nem ativado e o editor não responde até ele voltar. Verifique o serviço principal do n8n e o log dele.",
         ),
         "version_mismatch" => lang.pick(
             "Main, workers and webhook processors must run the same version. Finish the update on the ones left behind.",
