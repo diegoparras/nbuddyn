@@ -1,0 +1,46 @@
+name: Something is wrong
+description: nbuddyn fails, shows something false, or misses something it should see.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. English, Spanish or Portuguese are all fine.
+        Please take passwords, tokens and host names out of anything you paste.
+        A security problem does not go here: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: nbuddyn
+    attributes:
+      label: nbuddyn version
+      description: Settings → About, or the image tag.
+    validations:
+      required: true
+  - type: input
+    id: n8n
+    attributes:
+      label: n8n version
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: n8n's database
+      options: [Postgres, SQLite]
+    validations:
+      required: true
+  - type: input
+    id: how
+    attributes:
+      label: How nbuddyn runs
+      description: Docker, Compose, Easypanel, another panel, from source.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or output of `nbuddyn check`
+      render: text

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A security problem
+    url: https://github.com/diegoparras/nbuddyn/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue.
+  - name: Help with n8n itself
+    url: https://community.n8n.io
+    about: nbuddyn is not affiliated with n8n. Questions about n8n go to n8n's community.

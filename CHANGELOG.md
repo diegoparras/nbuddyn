@@ -3,6 +3,16 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## Unreleased
+
+- The navigation and the controls live behind one menu button, so nothing is cut off on
+  narrow screens.
+- Settings sections fold, and the page remembers which ones you closed.
+- The sign-in page opens in the instance's language.
+- New documentation: a README in English, Spanish and Portuguese, step-by-step
+  installation guides (Docker, Compose, Easypanel and other panels), a reference page,
+  and a contributing guide.
+
 ## 0.17.0
 
 - **Your rules**: per-check severity, a required reason when accepting, and

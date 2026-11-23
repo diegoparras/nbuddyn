@@ -1,0 +1,20 @@
+name: An idea
+description: A check nbuddyn should make, or something it should show.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English, Spanish or Portuguese are all fine.
+        One thing to keep in mind: nbuddyn only reads. It never changes n8n.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What happened, or nearly happened, in your n8n?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like nbuddyn to do?
