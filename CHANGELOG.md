@@ -3,7 +3,7 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
-## Unreleased
+## 0.19.0
 
 - **Assistants can sign in.** claude.ai and other MCP clients connect with the address
   alone: an administrator approves them on a page, and no token is copied (OAuth 2.1
