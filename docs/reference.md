@@ -361,7 +361,7 @@ directory and survive restarts and updates.
 ## Releases
 
 Versions are listed in the [changelog](../CHANGELOG.md). Images are tagged by version
-(`ghcr.io/diegoparras/nbuddyn:0.21.0`) and `latest`, signed, and carry a bill of
+(`ghcr.io/diegoparras/nbuddyn:0.22.0`) and `latest`, signed, and carry a bill of
 materials. How to verify one, how to report a vulnerability, and what an attacker who
 took over nbuddyn would and would not get, are in [SECURITY.md](../SECURITY.md). The [threat model](THREAT-MODEL.md) lists what
 protects each way in and what is knowingly left open; no independent audit has been done

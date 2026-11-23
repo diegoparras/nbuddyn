@@ -3,7 +3,7 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
-## Unreleased
+## 0.22.0
 
 - nbuddyn shows which n8n version is running, with or without Redis.
 - **Newer n8n versions**: an optional check, off by default, that tells you when a
