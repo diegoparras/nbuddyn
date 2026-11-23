@@ -3,6 +3,10 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## Unreleased
+
+- An assistant that registers and is never allowed in is forgotten after a day.
+
 ## 0.19.0
 
 - **Assistants can sign in.** claude.ai and other MCP clients connect with the address

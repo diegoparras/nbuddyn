@@ -32,6 +32,8 @@ const CODE_SECONDS: u64 = 300;
 const ACCESS_SECONDS: u64 = 3600;
 /// A connection nobody uses for this long ends.
 const REFRESH_SECONDS: u64 = 90 * 24 * 3600;
+/// An assistant that registered and was never let in is forgotten after this.
+const UNUSED_CLIENT_SECONDS: u64 = 24 * 3600;
 const MAX_CLIENTS: usize = 200;
 const MAX_PENDING: usize = 200;
 const MAX_REDIRECTS: usize = 5;
@@ -44,6 +46,9 @@ struct Client {
     name: String,
     redirect_uris: Vec<String>,
     created: u64,
+    /// Whether an administrator ever let it in.
+    #[serde(default)]
+    approved: bool,
 }
 
 /// One assistant an administrator let in.
@@ -143,7 +148,16 @@ impl Connect {
         let stored = file
             .as_ref()
             .and_then(|file| std::fs::read(file).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|bytes| serde_json::from_slice::<Stored>(&bytes).ok())
+            .map(|mut stored| {
+                // Connections made before clients were marked: they were let in.
+                let connected: Vec<String> =
+                    stored.grants.iter().map(|g| g.client_id.clone()).collect();
+                for client in &mut stored.clients {
+                    client.approved |= connected.contains(&client.id);
+                }
+                stored
+            })
             .unwrap_or_default();
         Self {
             file,
@@ -194,6 +208,10 @@ impl Connect {
         };
 
         let mut inner = self.lock();
+        inner
+            .stored
+            .clients
+            .retain(|c| c.approved || c.created + UNUSED_CLIENT_SECONDS > now);
         if inner.stored.clients.len() >= MAX_CLIENTS {
             // Make room by forgetting the oldest one nobody ever let in.
             let connected: Vec<String> = inner
@@ -217,6 +235,7 @@ impl Connect {
             name: name.clone(),
             redirect_uris: redirect_uris.to_vec(),
             created: now,
+            approved: false,
         };
         let id = client.id.clone();
         inner.stored.clients.push(client);
@@ -344,6 +363,14 @@ impl Connect {
             access: random_hex(32),
             refresh: random_hex(32),
         };
+        if let Some(client) = inner
+            .stored
+            .clients
+            .iter_mut()
+            .find(|c| c.id == code.client_id)
+        {
+            client.approved = true;
+        }
         inner.stored.grants.push(Grant {
             id: random_hex(8),
             client_id: code.client_id,
@@ -905,6 +932,26 @@ mod tests {
         assert!(connect
             .decide(&id, true, "ana", 10 + PENDING_SECONDS)
             .is_none());
+    }
+
+    #[test]
+    fn an_assistant_nobody_let_in_is_forgotten_after_a_day() {
+        let connect = Connect::new(None);
+        let (stray, _) = connect.register("stray", &[BACK.to_owned()], 1000).unwrap();
+        let (client, code) = code_for(&connect, 1000);
+        connect
+            .exchange(&trade(&client, &code, VERIFIER), 1001)
+            .unwrap();
+
+        // The next registration, a day later, clears out the one never let in.
+        let later = 1000 + UNUSED_CLIENT_SECONDS;
+        connect.register("new", &[BACK.to_owned()], later).unwrap();
+        let known = |id: &str| {
+            let ask = map(&[("client_id", id), ("redirect_uri", BACK)]);
+            !matches!(connect.begin(&ask, later), Err(Refusal::Stop(_)))
+        };
+        assert!(!known(&stray));
+        assert!(known(&client));
     }
 
     #[test]
