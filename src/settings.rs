@@ -131,6 +131,10 @@ pub struct Saved {
     /// The hash of the MCP token made on the page. The token is not kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp_token_hash: Option<String>,
+    /// Whether nbuddyn may ask the public lists if a newer n8n is out. Off
+    /// unless someone turns it on: it is the only thing it asks outside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_updates: Option<bool>,
     /// Whether unused credentials n8n made for itself are reported too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_own_credentials: Option<bool>,

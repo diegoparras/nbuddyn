@@ -164,11 +164,29 @@ fn snapshot(conn: &Connection) -> rusqlite::Result<Snapshot> {
         })
         .unwrap_or_default();
 
+    // n8n keeps this list from some version on; without it the version is
+    // simply not known.
+    let n8n_version = conn
+        .query_row(
+            "select major, minor, patch from instance_version_history order by id desc limit 1",
+            [],
+            |r| {
+                Ok(format!(
+                    "{}.{}.{}",
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?
+                ))
+            },
+        )
+        .ok();
+
     let count = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0));
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
         authors,
+        n8n_version,
         workflows,
         workflow_findings,
         credentials,

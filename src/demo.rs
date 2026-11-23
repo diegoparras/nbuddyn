@@ -114,6 +114,9 @@ fn create(conn: &Connection) -> rusqlite::Result<()> {
                status varchar, "startedAt" datetime, "stoppedAt" datetime, "createdAt" datetime, "deletedAt" datetime);
            create table "user" (id varchar primary key, disabled boolean default 0, "mfaEnabled" boolean default 0);
            create table workflow_history ("versionId" varchar(36) primary key, authors varchar);
+           create table instance_version_history (id integer primary key autoincrement,
+             major integer not null, minor integer not null, patch integer not null);
+           insert into instance_version_history (major, minor, patch) values (3, 2, 1), (3, 3, 0);
            insert into "user" values ('u1', 0, 1), ('u2', 0, 0), ('u3', 0, 0);"#,
     )?;
     let authors = ["Ana Paz", "Leo Ruiz", "Bea Soto"];

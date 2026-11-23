@@ -27,6 +27,8 @@ use crate::settings::{self, Accepted, Defaults, Effective, Instance, Saved, PRIM
 #[derive(Debug, Clone, Default)]
 pub struct Scan {
     pub generated_at: u64,
+    /// The n8n version that is running, when it could be told.
+    pub n8n_version: Option<String>,
     pub inventory: Inventory,
     pub findings: Vec<Finding>,
     pub cluster: Option<Cluster>,
@@ -88,6 +90,8 @@ pub struct AppState {
     pub public_url: Option<String>,
     /// The assistants that connected by signing in.
     pub connect: crate::oauth::Connect,
+    /// What n8n has published, asked at most once a day and only if allowed.
+    pub updates: crate::updates::Updates,
 }
 
 /// What the scanner last saw in one instance.
@@ -766,6 +770,9 @@ struct Report {
     lead: String,
     lights: Vec<Light>,
     totals: Totals,
+    /// The n8n version that is running, when it could be told.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n8n_version: Option<String>,
     inventory: Inventory,
     /// Queue, Redis and cluster members; absent when no Redis is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1160,6 +1167,7 @@ fn compose_report(
         lead: i18n::lead(lang, &urgent_titles),
         lights,
         totals,
+        n8n_version: scan.n8n_version.clone(),
         inventory: scan.inventory,
         cluster,
         cluster_error,
@@ -1878,6 +1886,7 @@ struct PolicyView {
     /// 0 means an acceptance lasts as long as the finding.
     accept_days: u32,
     show_own_credentials: bool,
+    check_updates: bool,
 }
 
 #[derive(Deserialize)]
@@ -1890,6 +1899,8 @@ struct PolicyForm {
     accept_days: u32,
     #[serde(default)]
     show_own_credentials: bool,
+    #[serde(default)]
+    check_updates: bool,
 }
 
 #[derive(Deserialize)]
@@ -1926,6 +1937,7 @@ async fn policy_view(
         accept_needs_note: saved.accept_needs_note.unwrap_or(false),
         accept_days: saved.accept_days.unwrap_or(0),
         show_own_credentials: saved.show_own_credentials.unwrap_or(false),
+        check_updates: saved.check_updates.unwrap_or(false),
     })
     .into_response()
 }
@@ -1955,6 +1967,7 @@ async fn policy_save(
         next.accept_needs_note = Some(form.accept_needs_note);
         next.accept_days = Some(form.accept_days);
         next.show_own_credentials = Some(form.show_own_credentials);
+        next.check_updates = Some(form.check_updates);
         Ok(next)
     })
     .await
@@ -2127,6 +2140,7 @@ mod tests {
     fn scan_of(_score: u32, findings: Vec<Finding>) -> Scan {
         Scan {
             generated_at: 1,
+            n8n_version: None,
             inventory: Inventory::default(),
             findings,
             cluster: None,

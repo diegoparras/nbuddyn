@@ -70,6 +70,9 @@ pub struct Snapshot {
     /// Who saved the current version of each workflow, by workflow id, where
     /// n8n keeps it and nbuddyn may read it.
     pub authors: std::collections::HashMap<String, String>,
+    /// The version n8n last wrote in its own database, where it keeps one and
+    /// nbuddyn may read it.
+    pub n8n_version: Option<String>,
     /// What the checks found in the workflows that were lightened on the way in.
     pub workflow_findings: Vec<crate::radar::Finding>,
 }

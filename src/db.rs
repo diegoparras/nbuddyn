@@ -388,12 +388,40 @@ async fn pg_connect(database_url: &str, timezone: Option<&str>) -> Result<Client
     Ok(client)
 }
 
+/// The version n8n recorded when it last started. n8n keeps that list from
+/// some version on, and reading it takes a grant of its own, so anything
+/// short of an answer is simply "not known".
+async fn n8n_version(client: &Client) -> Option<String> {
+    let may: bool = client
+        .query_one(
+            "select coalesce(has_table_privilege(to_regclass('instance_version_history'), 'select'), false)",
+            &[],
+        )
+        .await
+        .ok()?
+        .get(0);
+    if !may {
+        return None;
+    }
+    let row = client
+        .query_opt(
+            "select major::bigint, minor::bigint, patch::bigint
+             from instance_version_history order by id desc limit 1",
+            &[],
+        )
+        .await
+        .ok()??;
+    let part = |i: usize| row.get::<_, i64>(i);
+    Some(format!("{}.{}.{}", part(0), part(1), part(2)))
+}
+
 async fn pg_snapshot(client: &Client) -> Result<Snapshot, DbError> {
     let (workflows, workflow_findings) = workflows(client).await?;
     Ok(Snapshot {
         cluster: None,
         runners: Vec::new(),
         authors: authors(client).await,
+        n8n_version: n8n_version(client).await,
         workflows,
         workflow_findings,
         credentials: credentials(client).await?,

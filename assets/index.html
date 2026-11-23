@@ -1410,13 +1410,16 @@
       var own = h("select", { id: "policy_own" });
       [["false", ui.own_credentials_false], ["true", ui.own_credentials_true]].forEach(function (o) { own.appendChild(h("option", { value: o[0], text: o[1] })); });
       own.value = String(policy.show_own_credentials);
+      var updates = h("select", { id: "policy_updates" });
+      [["false", ui.check_updates_false], ["true", ui.check_updates_true]].forEach(function (o) { updates.appendChild(h("option", { value: o[0], text: o[1] })); });
+      updates.value = String(policy.check_updates);
       var days = h("input", { type: "number", id: "policy_days", min: 0, max: 3650, value: policy.accept_days });
       var save = h("button", { type: "button", class: "btn", text: ui.save });
       save.addEventListener("click", function () {
         var chosen = {};
         Object.keys(selects).forEach(function (check) { chosen[check] = selects[check].value; });
         save.disabled = true;
-        send("api/policy", { levels: chosen, accept_needs_note: needs.value === "true", accept_days: Number(days.value) || 0, show_own_credentials: own.value === "true" }).then(function (answer) {
+        send("api/policy", { levels: chosen, accept_needs_note: needs.value === "true", accept_days: Number(days.value) || 0, show_own_credentials: own.value === "true", check_updates: updates.value === "true" }).then(function (answer) {
           save.disabled = false;
           state.busy = false;
           toast(answer.ok ? ui.saved : ui.invalid);
@@ -1429,6 +1432,7 @@
         h("div", "field", h("label", { htmlFor: "policy_note", text: ui.set_accept_needs_note }), needs),
         h("div", "field", h("label", { htmlFor: "policy_days", text: ui.set_accept_days }), days, h("div", "help", ui.help_accept_days)),
         h("div", "field", h("label", { htmlFor: "policy_own", text: ui.set_own_credentials }), own, h("div", "help", ui.help_own_credentials)),
+        h("div", "field", h("label", { htmlFor: "policy_updates", text: ui.set_check_updates }), updates, h("div", "help", ui.help_check_updates)),
         h("div", "field", save)));
     }).catch(function () {});
     return card;
@@ -1694,7 +1698,7 @@
         form.appendChild(card);
       });
       var about = h("dl", "kv");
-      [[ui.env_mcp, s.mcp ? ui.on : ui.off]].concat(s.secrets_key ? [[ui.env_secrets, ui["secrets_" + s.secrets_key]]] : []).concat([[ui.env_tested, s.tested_with], ["nbuddyn", s.version]]).forEach(function (row) {
+      [[ui.env_mcp, s.mcp ? ui.on : ui.off]].concat(s.secrets_key ? [[ui.env_secrets, ui["secrets_" + s.secrets_key]]] : []).concat([[ui.env_n8n, state.report.n8n_version || ui.version_unknown], [ui.env_tested, s.tested_with], ["nbuddyn", s.version]]).forEach(function (row) {
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });

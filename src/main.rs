@@ -17,6 +17,7 @@ mod runners;
 mod settings;
 mod sqlite;
 mod tls;
+mod updates;
 mod vault;
 mod web;
 
@@ -341,6 +342,7 @@ async fn main() -> ExitCode {
         rescan: Notify::new(),
         history_enabled: config.data_dir.is_some(),
         runtimes: RwLock::new(HashMap::new()),
+        updates: updates::Updates::default(),
     });
 
     let listener = match TcpListener::bind(&config.listen).await {
@@ -515,13 +517,40 @@ async fn scan_once(
     *runtime.cluster_error.write().await = cluster_error;
     snapshot.runners = runners::probe_all(&instance.runners).await;
     let mut scan = evaluate(&snapshot);
-    let (policy, show_own) = {
+    let (policy, show_own, check_updates) = {
         let saved = state.saved.read().await;
         (
             saved.policy.clone(),
             saved.show_own_credentials.unwrap_or(false),
+            saved.check_updates.unwrap_or(false),
         )
     };
+    // Only when someone allowed it: this is the one question asked outside.
+    if let Some(installed) = scan
+        .n8n_version
+        .as_deref()
+        .and_then(updates::parse)
+        .filter(|_| check_updates)
+    {
+        let latest = state.updates.latest(installed, scan.generated_at).await;
+        if let Some((severity, newer)) = latest.and_then(|l| updates::verdict(installed, l)) {
+            scan.findings.push(radar::Finding {
+                check: "n8n_outdated",
+                severity,
+                workflow: None,
+                node: None,
+                detail: Some(format!(
+                    "{} → {}",
+                    updates::show(installed),
+                    updates::show(newer)
+                )),
+                active: None,
+                workflow_id: None,
+                subject: None,
+            });
+            radar::sort(&mut scan.findings);
+        }
+    }
     if !show_own {
         radar::drop_own_credentials(&mut scan.findings);
     }
@@ -623,6 +652,7 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
         generated_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
+        n8n_version: running_version(snapshot),
         inventory: Inventory {
             workflows: snapshot.workflows.len(),
             active: snapshot.workflows.iter().filter(|w| w.active).count(),
@@ -636,6 +666,25 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
         credentials: credential_map(snapshot),
         findings,
     }
+}
+
+/// The n8n version that is running. The processes say it themselves when
+/// there is a cluster to ask; otherwise it is what n8n wrote in its database.
+fn running_version(snapshot: &Snapshot) -> Option<String> {
+    let from_cluster = snapshot.cluster.as_ref().and_then(|cluster| {
+        let of = |kind: &str| {
+            cluster
+                .members
+                .iter()
+                .filter(|m| kind.is_empty() || m.kind == kind)
+                .filter_map(|m| updates::parse(&m.version))
+                .max()
+        };
+        of("main").or_else(|| of(""))
+    });
+    from_cluster
+        .map(updates::show)
+        .or_else(|| snapshot.n8n_version.clone())
 }
 
 /// Which workflows use each credential, most used first.

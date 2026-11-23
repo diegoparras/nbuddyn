@@ -36,7 +36,7 @@ questions with one score and a list of what to do first.
 
 - **Read-only.** It switches its database session to read-only before the first query. It cannot change your n8n.
 - **Tiny.** One static binary written in Rust. The image is a few MB and a typical instance uses under 30 MB of memory.
-- **Private.** No telemetry, no account, no cloud. Nothing leaves your server unless you set up alerts.
+- **Private.** No telemetry, no account, no cloud. Nothing leaves your server unless you set up alerts or turn on the check for new n8n versions.
 - **Three languages.** English, Spanish and Portuguese, switchable on the page.
 
 ## Try it in 30 seconds

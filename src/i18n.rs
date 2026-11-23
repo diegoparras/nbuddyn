@@ -58,6 +58,7 @@ pub const CHECKS: &[&str] = &[
     "version_mismatch",
     "runner_down",
     "stale_workflow",
+    "n8n_outdated",
 ];
 
 /// Heading of the new findings in an alert.
@@ -407,6 +408,11 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
             "El cluster corre versiones distintas de n8n",
             "O cluster está rodando versões diferentes do n8n",
         )),
+        "n8n_outdated" => same(lang.pick(
+            "A newer n8n version is out",
+            "Hay una versión más nueva de n8n",
+            "Há uma versão mais nova do n8n",
+        )),
         "stale_workflow" => (
             lang.pick(
                 "A workflow stopped running",
@@ -537,6 +543,11 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "It used to run most days and has not run in three. Check its trigger, its schedule and whether it is still published.",
             "Corría casi todos los días y hace tres que no corre. Revisá su disparador, su horario y si sigue publicado.",
             "Rodava quase todos os dias e há três não roda. Verifique o gatilho, o horário e se continua publicado.",
+        ),
+        "n8n_outdated" => lang.pick(
+            "Read n8n's release notes and update when it suits you. Fixes for security problems reach the newest versions first.",
+            "Leé las notas de la versión de n8n y actualizá cuando te convenga. Los arreglos de seguridad llegan primero a las versiones más nuevas.",
+            "Leia as notas da versão do n8n e atualize quando for conveniente. As correções de segurança chegam primeiro às versões mais novas.",
         ),
         "runner_down" => lang.pick(
             "Code nodes on its worker will fail or wait until it is back. Check that runner's service and its logs.",
@@ -835,6 +846,12 @@ pub struct UiText {
     pub not_checked_title: &'static str,
     pub not_checked_note: &'static str,
     pub not_checked: [&'static str; 5],
+    pub set_check_updates: &'static str,
+    pub check_updates_false: &'static str,
+    pub check_updates_true: &'static str,
+    pub help_check_updates: &'static str,
+    pub env_n8n: &'static str,
+    pub version_unknown: &'static str,
     pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
@@ -1873,6 +1890,36 @@ pub fn ui_text(lang: Lang) -> UiText {
             "A pontuação resume o que o nbuddyn consegue ver. É um radar, não uma auditoria.",
         ),
         not_checked: not_checked(lang),
+        set_check_updates: lang.pick(
+            "Newer n8n versions",
+            "Versiones nuevas de n8n",
+            "Versões novas do n8n",
+        ),
+        check_updates_false: lang.pick(
+            "Do not look",
+            "No buscar",
+            "Não procurar",
+        ),
+        check_updates_true: lang.pick(
+            "Tell me when one is out",
+            "Avisarme cuando salga una",
+            "Avisar quando sair uma",
+        ),
+        help_check_updates: lang.pick(
+            "Off by default, because it is the only thing nbuddyn asks outside your server. Once a day it reads two public lists (registry.npmjs.org and hub.docker.com) and sends nothing about your n8n.",
+            "Apagado por defecto, porque es lo único que nbuddyn pregunta fuera de tu servidor. Una vez por día lee dos listas públicas (registry.npmjs.org y hub.docker.com) y no manda nada sobre tu n8n.",
+            "Desligado por padrão, porque é a única coisa que o nbuddyn pergunta fora do seu servidor. Uma vez por dia lê duas listas públicas (registry.npmjs.org e hub.docker.com) e não envia nada sobre o seu n8n.",
+        ),
+        env_n8n: lang.pick(
+            "n8n version",
+            "Versión de n8n",
+            "Versão do n8n",
+        ),
+        version_unknown: lang.pick(
+            "not known",
+            "no se sabe",
+            "não se sabe",
+        ),
         env_tested: lang.pick(
             "Tested with n8n",
             "Probado con n8n",

@@ -64,6 +64,14 @@ page shows each workflow's average and slowest run:
 GRANT SELECT ("stoppedAt") ON execution_entity TO nbuddyn;
 ```
 
+nbuddyn shows which n8n version is running. With Redis configured the processes say it
+themselves; otherwise it comes from a table where n8n writes its version, which on
+Postgres takes one more grant:
+
+```sql
+GRANT SELECT ON instance_version_history TO nbuddyn;
+```
+
 Every number opens. Click a day to see which workflows ran on it, the ones that failed
 first. Click a workflow to see its own days, and pick a day there to list its executions:
 when each started, how it ended, how long it took, and a link that opens it in n8n. That
@@ -216,6 +224,10 @@ What matters is not the same everywhere, so **Settings → Your rules** lets a t
 
 - how severe each check is here: more, less, or off. A company can make "users without
   two-factor" urgent and turn "unused credentials" off;
+- whether nbuddyn tells you when a newer n8n is out. This is off by default, because it is
+  the only thing nbuddyn asks outside your server: once a day it reads two public lists
+  (`registry.npmjs.org` and `hub.docker.com`) and sends nothing about your n8n. An n8n
+  that is ahead of the stable version is not reported as behind;
 - whether accepting a finding needs a written reason;
 - whether the credentials n8n 3 makes for its own assistant count as unused (they do
   not, unless you say so);

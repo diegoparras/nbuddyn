@@ -36,7 +36,7 @@ perguntas com uma pontuação e uma lista do que fazer primeiro.
 
 - **Somente leitura.** Coloca a sessão do banco em modo leitura antes da primeira consulta. Não pode alterar o seu n8n.
 - **Mínimo.** Um único binário estático escrito em Rust. A imagem tem poucos MB e uma instância típica usa menos de 30 MB de memória.
-- **Privado.** Sem telemetria, sem conta, sem nuvem. Nada sai do seu servidor, a não ser os alertas que você configurar.
+- **Privado.** Sem telemetria, sem conta, sem nuvem. Nada sai do seu servidor, a não ser os alertas que você configurar ou o aviso de versões novas do n8n, se você o ligar.
 - **Três idiomas.** Inglês, espanhol e português, trocáveis na própria página.
 
 ## Experimente em 30 segundos
