@@ -5,8 +5,10 @@ while the first number is 0, the second one changes when something you rely on m
 
 ## Unreleased
 
-- The finding about workflows with no error workflow comes with one to copy and paste
-  into n8n: it sends the failure to Telegram.
+- **Shortcuts.** Where a finding has something to copy, nbuddyn hands it over: an error
+  workflow to paste into n8n, a fresh token for a webhook or an MCP trigger left open
+  (made in your browser, never sent anywhere), and the Redis command that stops it from
+  dropping queue jobs.
 
 ## 0.22.0
 

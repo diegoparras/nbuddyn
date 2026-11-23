@@ -447,22 +447,98 @@ pub fn group_title(lang: Lang, check: &str, count: usize) -> String {
 }
 
 /// What to do about a check.
-/// Something ready to paste into n8n that settles a finding, where one
-/// thing settles it for everybody.
+/// Something ready to copy that settles a finding: nodes for n8n's canvas, a
+/// command, or a fresh token.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Recipe {
-    /// What the button says.
-    pub label: &'static str,
-    /// What to do with it once it is copied.
-    pub steps: &'static str,
-    /// The text to copy: nodes and connections, as n8n's canvas takes them.
+    /// `nodes` to paste on n8n's canvas, a `command` to run, or a `token`
+    /// the page makes up on the spot and never sends anywhere.
+    pub kind: &'static str,
+    pub title: &'static str,
+    /// What gets copied, shown in short. Empty for a token.
+    pub preview: String,
+    /// What to do with it, one step at a time.
+    pub steps: Vec<&'static str>,
+    /// The text to copy. Empty for a token.
     pub text: String,
 }
 
 pub fn recipe(lang: Lang, check: &str) -> Option<Recipe> {
-    if check != "no_error_workflow" {
-        return None;
+    match check {
+        "no_error_workflow" => Some(error_workflow(lang)),
+        "public_entry_no_auth" => Some(Recipe {
+            kind: "token",
+            title: lang.pick("A fresh token", "Un token nuevo", "Um token novo"),
+            preview: String::new(),
+            steps: vec![
+                lang.pick(
+                    "In the Webhook node, set Authentication to Header Auth.",
+                    "En el nodo Webhook, poné Authentication en Header Auth.",
+                    "No nó Webhook, defina Authentication como Header Auth.",
+                ),
+                lang.pick(
+                    "Create a credential: name X-Api-Key, and this token as the value.",
+                    "Creá una credencial: nombre X-Api-Key, y este token como valor.",
+                    "Crie uma credencial: nome X-Api-Key, e este token como valor.",
+                ),
+                lang.pick(
+                    "Whoever calls it now has to send that header. Forms take Basic Auth instead.",
+                    "Quien lo llame ahora tiene que mandar ese encabezado. Los formularios usan Basic Auth.",
+                    "Quem chamar agora precisa enviar esse cabeçalho. Formulários usam Basic Auth.",
+                ),
+            ],
+            text: String::new(),
+        }),
+        "open_ai_entry" => Some(Recipe {
+            kind: "token",
+            title: lang.pick("A fresh token", "Un token nuevo", "Um token novo"),
+            preview: String::new(),
+            steps: vec![
+                lang.pick(
+                    "In the MCP Server Trigger node, set Authentication to Bearer Auth.",
+                    "En el nodo MCP Server Trigger, poné Authentication en Bearer Auth.",
+                    "No nó MCP Server Trigger, defina Authentication como Bearer Auth.",
+                ),
+                lang.pick(
+                    "Create a credential with this token.",
+                    "Creá una credencial con este token.",
+                    "Crie uma credencial com este token.",
+                ),
+                lang.pick(
+                    "Put the same token in the assistant that connects to it. A public chat takes Basic Auth instead.",
+                    "Cargá el mismo token en el asistente que se conecta. Un chat público usa Basic Auth.",
+                    "Coloque o mesmo token no assistente que se conecta. Um chat público usa Basic Auth.",
+                ),
+            ],
+            text: String::new(),
+        }),
+        "redis_eviction" => {
+            let command = "redis-cli CONFIG SET maxmemory-policy noeviction";
+            Some(Recipe {
+                kind: "command",
+                title: lang.pick("The command", "El comando", "O comando"),
+                preview: command.to_owned(),
+                steps: vec![
+                    lang.pick(
+                        "Run it in n8n's Redis. It takes effect at once.",
+                        "Corrélo en el Redis de n8n. Se aplica en el momento.",
+                        "Execute no Redis do n8n. Vale na hora.",
+                    ),
+                    lang.pick(
+                        "So it survives a restart, add --maxmemory-policy noeviction to how Redis is started.",
+                        "Para que sobreviva a un reinicio, agregá --maxmemory-policy noeviction al arranque de Redis.",
+                        "Para sobreviver a um reinício, adicione --maxmemory-policy noeviction à inicialização do Redis.",
+                    ),
+                ],
+                text: command.to_owned(),
+            })
+        }
+        _ => None,
     }
+}
+
+/// Two nodes: one that fires when another workflow fails, one that says so.
+fn error_workflow(lang: Lang) -> Recipe {
     let notify = lang.pick(
         "Tell me on Telegram",
         "Avisar por Telegram",
@@ -504,19 +580,33 @@ pub fn recipe(lang: Lang, check: &str) -> Option<Recipe> {
             "Error Trigger": { "main": [[{ "node": notify, "type": "main", "index": 0 }]] }
         }
     });
-    Some(Recipe {
-        label: lang.pick(
-            "Copy an error workflow",
-            "Copiar un workflow de error",
-            "Copiar um workflow de erro",
+    Recipe {
+        kind: "nodes",
+        title: lang.pick(
+            "An error workflow",
+            "Un workflow de error",
+            "Um workflow de erro",
         ),
-        steps: lang.pick(
-            "Open a new workflow in n8n, click the canvas and paste. In the Telegram node pick your credential and write your chat id, then save. Last, in each workflow listed here: Settings → Error workflow, and choose it. Not on Telegram? Swap the second node for Slack, e-mail or whatever you use.",
-            "Abrí un workflow nuevo en n8n, hacé clic en el lienzo y pegá. En el nodo de Telegram elegí tu credencial y escribí tu número de chat, y guardá. Por último, en cada workflow de esta lista: Ajustes → Workflow de error, y elegilo. ¿No usás Telegram? Cambiá el segundo nodo por Slack, correo o lo que uses.",
-            "Abra um workflow novo no n8n, clique na tela e cole. No nó do Telegram escolha a sua credencial e escreva o seu chat id, e salve. Por fim, em cada workflow desta lista: Configurações → Workflow de erro, e escolha-o. Não usa Telegram? Troque o segundo nó por Slack, e-mail ou o que você usa.",
-        ),
+        preview: format!("Error Trigger → {notify}"),
+        steps: vec![
+            lang.pick(
+                "Open a new workflow in n8n, click the canvas and paste.",
+                "Abrí un workflow nuevo en n8n, hacé clic en el lienzo y pegá.",
+                "Abra um workflow novo no n8n, clique na tela e cole.",
+            ),
+            lang.pick(
+                "In the Telegram node pick your credential and write your chat id, then save. Not on Telegram? Swap that node for Slack, e-mail or whatever you use.",
+                "En el nodo de Telegram elegí tu credencial y escribí tu número de chat, y guardá. ¿No usás Telegram? Cambiá ese nodo por Slack, correo o lo que uses.",
+                "No nó do Telegram escolha a sua credencial e escreva o seu chat id, e salve. Não usa Telegram? Troque esse nó por Slack, e-mail ou o que você usa.",
+            ),
+            lang.pick(
+                "In each workflow listed here: Settings → Error workflow, and choose it.",
+                "En cada workflow de esta lista: Ajustes → Workflow de error, y elegilo.",
+                "Em cada workflow desta lista: Configurações → Workflow de erro, e escolha-o.",
+            ),
+        ],
         text: serde_json::to_string_pretty(&workflow).unwrap_or_default(),
-    })
+    }
 }
 
 pub fn advice(lang: Lang, check: &str) -> &'static str {
@@ -928,6 +1018,9 @@ pub struct UiText {
     pub update_failed: &'static str,
     pub update_newer: &'static str,
     pub recipe_label: &'static str,
+    pub recipe_copy: &'static str,
+    pub recipe_again: &'static str,
+    pub recipe_token_note: &'static str,
     pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
@@ -2012,6 +2105,13 @@ pub fn ui_text(lang: Lang) -> UiText {
             "há uma mais nova:",
         ),
         recipe_label: lang.pick("Shortcut", "Atajo", "Atalho"),
+        recipe_copy: lang.pick("Copy", "Copiar", "Copiar"),
+        recipe_again: lang.pick("Make another", "Generar otro", "Gerar outro"),
+        recipe_token_note: lang.pick(
+            "Made in your browser just now. nbuddyn does not keep it or send it anywhere.",
+            "Generado recién en tu navegador. nbuddyn no lo guarda ni lo manda a ningún lado.",
+            "Gerado agora no seu navegador. O nbuddyn não o guarda nem o envia a lugar nenhum.",
+        ),
         env_tested: lang.pick(
             "Tested with n8n",
             "Probado con n8n",
@@ -2532,6 +2632,18 @@ mod tests {
             assert!(nodes[1].get("credentials").is_none());
         }
         assert_eq!(recipe(Lang::En, "no_mfa"), None);
+        // A token is made in the browser: nothing to copy travels from here.
+        for check in ["public_entry_no_auth", "open_ai_entry"] {
+            let token = recipe(Lang::Es, check).unwrap();
+            assert_eq!((token.kind, token.text.as_str()), ("token", ""));
+            assert!(!token.steps.is_empty());
+        }
+        let redis = recipe(Lang::Pt, "redis_eviction").unwrap();
+        assert_eq!(redis.kind, "command");
+        assert_eq!(
+            redis.text,
+            "redis-cli CONFIG SET maxmemory-policy noeviction"
+        );
     }
 
     #[test]

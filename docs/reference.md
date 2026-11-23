@@ -23,10 +23,14 @@ nbuddyn is an independent project. It is not affiliated with or endorsed by n8n 
 | Low | Credentials no workflow uses |
 | Info | Nodes that run system commands |
 
-Where one thing settles a finding for every workflow, nbuddyn hands it over ready to
-paste. "Active workflows without an error workflow" has a button that copies a two-node
-error workflow: paste it on n8n's canvas, pick your Telegram credential, and assign it.
-It carries no credential of its own.
+Where a finding has something to copy, nbuddyn hands it over under **Shortcut**, with the
+steps to follow:
+
+- *Active workflows without an error workflow*: a two-node error workflow to paste on
+  n8n's canvas. Pick your Telegram credential and assign it. It carries no credential.
+- *Webhooks, forms, MCP servers and chats without authentication*: a fresh token to use
+  as the secret. It is made in your browser; nbuddyn never sees it.
+- *Redis may drop queue jobs*: the command that sets `noeviction`.
 
 With Redis configured, it also watches the queue and the cluster:
 
