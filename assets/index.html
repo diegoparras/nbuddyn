@@ -85,6 +85,13 @@
   .card > h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); font: 600 13px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); }
   .card > h2 a { margin-left: auto; font: 500 13px var(--sans); letter-spacing: 0; text-transform: none; color: var(--amber); text-decoration: none; }
   .card > h2 a:hover { text-decoration: underline; }
+  .card > h2.fold { cursor: pointer; user-select: none; }
+  .card > h2.fold:hover { color: var(--ink, inherit); }
+  .card > h2.fold:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+  .card > h2.fold::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translate(-2px, -2px); transition: transform 0.15s; }
+  .card.shut > h2.fold::after { transform: rotate(-45deg); }
+  .card.shut > h2.fold { border-bottom: 0; }
+  .card.shut > :not(h2) { display: none !important; }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--line2); background: none; color: var(--ink); font-weight: 500; font-size: 14px; text-decoration: none; white-space: nowrap; }
   .btn:hover { border-color: var(--muted); }
   .btn.primary { background: var(--amber); border-color: var(--amber); color: #1A1305; font-weight: 600; }
@@ -1484,12 +1491,35 @@
             var w = form.querySelector('[data-field="' + name + '"]');
             if (!w) return;
             w.classList.add("wrong");
+            var holder = w.closest(".card");
+            if (holder) { holder.classList.remove("shut"); holder.firstChild.setAttribute("aria-expanded", "true"); }
             w.insertBefore(h("div", "bad", ui.invalid), w.querySelector(".help"));
           });
           var first = form.querySelector(".wrong input, .wrong textarea, .wrong select");
           if (first) first.focus();
           else status.textContent = ui.save_failed + (answer.error ? ": " + answer.error : "");
         });
+      });
+      var shut = (stored("nbuddyn.shut") || "").split(",");
+      Array.prototype.forEach.call(form.querySelectorAll(".card > h2"), function (head, index) {
+        var card = head.parentNode, id = String(index);
+        function set(closed) {
+          card.classList.toggle("shut", closed);
+          head.setAttribute("aria-expanded", closed ? "false" : "true");
+        }
+        function flip() {
+          var closed = !card.classList.contains("shut");
+          set(closed);
+          shut = shut.filter(function (x) { return x && x !== id; });
+          if (closed) shut.push(id);
+          store("nbuddyn.shut", shut.join(","));
+        }
+        head.classList.add("fold");
+        head.setAttribute("role", "button");
+        head.tabIndex = 0;
+        set(shut.indexOf(id) >= 0);
+        head.addEventListener("click", function (ev) { if (!ev.target.closest("a, button, input, select")) flip(); });
+        head.addEventListener("keydown", function (ev) { if (ev.target === head && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); flip(); } });
       });
       fill(view, h("header", null, h("h1", null, ui.settings)), form);
     }).catch(function (err) { console.error("nbuddyn", err); });
