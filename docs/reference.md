@@ -284,6 +284,8 @@ http: keep nbuddyn on the same private network as them. `GET /healthz` answers w
 
 ## Which n8n versions
 
+nbuddyn is made for n8n 3 and later; older versions are tested but are not its target.
+
 nbuddyn reads n8n's own database, and n8n does not promise to keep it the same. So
 every change to nbuddyn is tested against real n8n **1.123, 2.48 and 3.3**, each on SQLite
 and on Postgres: n8n is started, builds its database, and nbuddyn reads it.

@@ -134,8 +134,9 @@ see. It is a radar, not an audit.
 
 ## Compatibility
 
-Every change is tested against real n8n **1.123, 2.48 and 3.3**, each on SQLite and on
-Postgres. nbuddyn reads n8n's own database, which n8n may change between versions; after
+nbuddyn is made for **n8n 3 and later**. Every change is tested against a real n8n 3.3,
+on SQLite and on Postgres. It is also run against n8n 1.123 and 2.48, but those are not
+what it is built for, and some checks (workers, webhook processors) need n8n 3. nbuddyn reads n8n's own database, which n8n may change between versions; after
 updating n8n, `nbuddyn check` tells you whether everything can still be read.
 
 ## Documentation

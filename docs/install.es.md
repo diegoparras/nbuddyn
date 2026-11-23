@@ -16,6 +16,8 @@ arranca un n8n inventado. Entrá con `demo` / `demo`.
 
 ## Antes de empezar
 
+nbuddyn está pensado para **n8n 3 en adelante**.
+
 Necesitás saber una sola cosa: **qué base de datos usa tu n8n.**
 
 - Si nunca le configuraste una, es **SQLite**: un archivo llamado `database.sqlite` dentro de la carpeta de datos de n8n.

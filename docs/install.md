@@ -16,6 +16,8 @@ starts a made-up n8n. Sign in as `demo` / `demo`.
 
 ## Before you start
 
+nbuddyn is made for **n8n 3 and later**.
+
 You need to know one thing: **which database your n8n uses.**
 
 - If you never set one up, it is **SQLite**: a file called `database.sqlite` inside n8n's data folder.

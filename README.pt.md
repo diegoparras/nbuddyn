@@ -134,8 +134,10 @@ ele consegue ver. É um radar, não uma auditoria.
 
 ## Compatibilidade
 
-Cada mudança é testada contra n8n reais **1.123, 2.48 e 3.3**, cada um com SQLite e com
-Postgres. O nbuddyn lê o banco de dados do próprio n8n, que o n8n pode mudar entre
+O nbuddyn é feito para o **n8n 3 em diante**. Cada mudança é testada contra um n8n 3.3
+real, com SQLite e com Postgres. Ele também é executado contra o n8n 1.123 e 2.48, mas
+não é para isso que foi feito, e algumas verificações (workers, processadores de
+webhooks) precisam do n8n 3. O nbuddyn lê o banco de dados do próprio n8n, que o n8n pode mudar entre
 versões; depois de atualizar o n8n, `nbuddyn check` diz se tudo ainda pode ser lido.
 
 ## Documentação
