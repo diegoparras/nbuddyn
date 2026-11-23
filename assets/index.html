@@ -36,15 +36,25 @@
   .top { position: sticky; top: 0; z-index: 10; background: rgba(10, 14, 19, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
   .top .shell { display: flex; align-items: center; gap: 0 20px; min-height: 60px; }
   .brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--mono); letter-spacing: 0.02em; text-decoration: none; }
-  nav { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; align-self: stretch; }
-  nav::-webkit-scrollbar { display: none; }
-  nav a { display: flex; align-items: center; gap: 8px; padding: 0 12px; text-decoration: none; color: var(--muted); font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  nav a:hover { color: var(--ink); }
-  nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--amber); }
-  nav .badge { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 10px; background: var(--raised); color: var(--soft); }
-  nav .badge.high { background: var(--red-bg); color: var(--red-ink); }
-  .tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .crumb { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-left: 20px; border-left: 1px solid var(--line); }
+  .tools { display: flex; align-items: center; gap: 12px; margin-left: auto; position: relative; }
   .sweep { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+  /* Everything lives behind one button, so nothing is cut off however
+     many sections there are or however narrow the window is. */
+  .menu { position: absolute; top: calc(100% + 12px); right: 0; z-index: 12; width: min(300px, calc(100vw - 24px)); max-height: calc(100vh - 84px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line2); border-radius: var(--radius); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55); padding: 8px; animation: arrive 0.14s ease-out; }
+  .menu nav { display: grid; gap: 2px; }
+  .menu nav a, .menu .row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--soft); font-size: 15px; font-weight: 500; text-align: left; text-decoration: none; }
+  .menu nav a:hover, .menu button.row:hover { background: var(--raised); color: var(--ink); }
+  .menu nav a[aria-current="page"] { background: var(--raised); color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); }
+  .menu .row[disabled] { opacity: 0.6; cursor: default; }
+  .menu .row svg { flex: none; color: var(--muted); }
+  .menu .badge { margin-left: auto; font: 600 11px var(--mono); padding: 1px 7px; border-radius: 10px; background: var(--bg); color: var(--soft); }
+  .menu .badge.high { background: var(--red-bg); color: var(--red-ink); }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 8px 4px; }
+  .menu .row select { margin-left: auto; }
+  .menu .who { min-width: 0; }
+  .menu .who b { display: block; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+  .menu .who small { color: var(--muted); font-size: 12px; }
   .iconbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; min-width: 36px; padding: 0 10px; background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
   .iconbtn:hover { border-color: var(--line2); color: var(--ink); }
   .iconbtn[disabled] { opacity: 0.6; cursor: default; }
@@ -259,8 +269,6 @@
   .preflight p { color: var(--soft); max-width: 520px; }
   .radar { flex: none; width: 96px; height: 96px; }
   .radar .sweep { transform-origin: 48px 48px; animation: spin 2.4s linear infinite; }
-  .me { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--soft); white-space: nowrap; }
-  .me b { font-weight: 600; color: var(--ink); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 
   .secret { position: relative; display: flex; min-width: 0; }
   .secret input { flex: 1 1 auto; width: 100%; padding-right: 42px; }
@@ -285,15 +293,12 @@
   footer { margin-top: 28px; font: 12px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
   .printhead { display: none; }
 
-  @media (max-width: 1240px) { .sweep { display: none; } }
-  @media (max-width: 1040px) { .iconbtn .label { display: none; } }
+  @media (max-width: 760px) { .sweep { display: none; } }
   @media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 720px) {
     .shell { padding: 0 16px; }
-    .top .shell { flex-wrap: wrap; padding-top: 8px; }
-    nav { order: 3; flex: 1 1 100%; height: 44px; margin: 0 -16px; padding: 0 8px; }
-    .sweep, .iconbtn .label { display: none; }
     select.which { max-width: 120px; }
+    .crumb { padding-left: 12px; }
     .hero { padding: 20px; }
     .brief h1 { font-size: 26px; }
     th, td { padding-left: 12px; padding-right: 12px; }
@@ -308,7 +313,7 @@
   @media print {
     :root { --bg: #fff; --surface: #fff; --raised: #f3f4f6; --line: #d5d9e0; --line2: #b9c0cb; --ink: #111827; --soft: #374151; --muted: #4b5563;
             --red: #b4271a; --red-ink: #b4271a; --red-bg: #fff; --amber: #8a5300; --amber-bg: #fff; --green: #17663f; --green-bg: #fff; --blue-ink: #1d3faa; --blue-bg: #fff; }
-    .top, .fleet, .filters, .login, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
+    .top, .menu, .fleet, .filters, .login, .actions, .act, .tip, .toast, .linkbtn, .morebar, .ranges, #view-settings, .acceptform, .hint, .card > h2 a, .todo .btn { display: none !important; }
     .view { margin-bottom: 28px; }
     .printhead { display: block; font: 600 16px var(--mono); margin-bottom: 16px; }
     .gcard, figure, .tile, .todo li, tr { break-inside: avoid; }
@@ -331,13 +336,20 @@
       nbuddyn
     </a>
     <select class="lang which" id="which" hidden></select>
-    <nav id="nav"></nav>
+    <span class="crumb" id="where"></span>
     <div class="tools">
       <span class="sweep" id="sweep"></span>
-      <button type="button" class="iconbtn" id="rescan"></button>
-      <button type="button" class="iconbtn" id="export"></button>
-      <span class="me" id="me" hidden></span>
-      <select class="lang" id="lang"><option value="es">ES</option><option value="en">EN</option><option value="pt">PT</option></select>
+      <button type="button" class="iconbtn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="menu">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 5h12M3 9h12M3 13h12"/></svg>
+      </button>
+      <div class="menu" id="menu" hidden>
+        <nav id="nav"></nav>
+        <hr>
+        <button type="button" class="row" id="rescan"></button>
+        <button type="button" class="row" id="export"></button>
+        <label class="row" id="langRow"><span id="langLabel"></span><select class="lang" id="lang"><option value="es">Español</option><option value="en">English</option><option value="pt">Português</option></select></label>
+        <div id="me" hidden></div>
+      </div>
     </div>
   </div>
 </div>
@@ -647,14 +659,18 @@
       var link = h("a", { href: "#/" + t[0], text: t[1] });
       if (t[0] === state.view) link.setAttribute("aria-current", "page");
       if (t[2]) link.appendChild(h("span", "badge" + (urgent ? " high" : ""), t[2]));
+      if (t[0] === state.view) $("where").textContent = t[1];
       nav.appendChild(link);
     });
+    $("menuBtn").title = ui.menu;
+    $("menuBtn").setAttribute("aria-label", ui.menu);
+    $("langLabel").textContent = ui.language;
     $("sweep").textContent = r.generated_at ? ui.sweep + " " + relative(r.generated_at) : "";
     $("sweep").title = r.generated_at ? new Date(r.generated_at * 1000).toLocaleString(r.lang) : "";
     var rescan = $("rescan");
     fill(rescan, icon("refresh"), h("span", "label", state.scanning ? ui.scanning : ui.scan_now));
     rescan.disabled = state.scanning;
-    rescan.className = "iconbtn" + (state.scanning ? " spin" : "");
+    rescan.className = "row" + (state.scanning ? " spin" : "");
     rescan.title = ui.scan_now;
     fill($("export"), icon("download"), h("span", "label", ui.export));
     $("export").title = ui.export;
@@ -662,10 +678,11 @@
     var me = $("me");
     me.hidden = !state.me || state.me.open;
     if (!me.hidden) {
-      var out = h("button", { type: "button", class: "iconbtn", title: ui.logout, "aria-label": ui.logout, on: { click: function () {
+      var out = h("button", { type: "button", class: "row", on: { click: function () {
+        closeMenu();
         send("api/logout").then(function () { state.me = null; state.report = null; showLogin(); });
-      } } }, icon("exit"));
-      fill(me, h("b", { title: ui["role_" + state.me.role], text: state.me.user }), out);
+      } } }, icon("exit"), ui.logout);
+      fill(me, h("hr"), h("div", "row who", h("div", null, h("b", null, state.me.user), h("small", null, ui["role_" + state.me.role]))), out);
     }
     $("printhead").textContent = "nbuddyn · " + ui.tagline + (r.generated_at ? " · " + new Date(r.generated_at * 1000).toLocaleString(r.lang) : "");
 
@@ -1535,6 +1552,24 @@
     }).catch(function (err) { console.error("nbuddyn", err); });
   }
 
+  function closeMenu() {
+    $("menu").hidden = true;
+    $("menuBtn").setAttribute("aria-expanded", "false");
+  }
+  $("menuBtn").addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    var opening = $("menu").hidden;
+    $("menu").hidden = !opening;
+    $("menuBtn").setAttribute("aria-expanded", String(opening));
+    if (opening) { var first = $("menu").querySelector("a[aria-current], a"); if (first) first.focus(); }
+  });
+  // Choosing a section closes it; so does a click anywhere else, or Escape.
+  $("nav").addEventListener("click", function (ev) { if (ev.target.closest("a")) closeMenu(); });
+  $("menu").addEventListener("click", function (ev) { ev.stopPropagation(); });
+  document.addEventListener("click", closeMenu);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !$("menu").hidden) { closeMenu(); $("menuBtn").focus(); }
+  });
   $("which").addEventListener("change", function () { switchTo($("which").value); });
   $("lang").addEventListener("change", function () {
     state.lang = $("lang").value;
@@ -1562,6 +1597,7 @@
   });
   $("export").addEventListener("click", function () {
     if (!state.report) return;
+    closeMenu();
     state.printing = true;
     VIEWS.forEach(function (v) { $("view-" + v).hidden = v === "settings"; });
     renderAll();

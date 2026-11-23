@@ -745,6 +745,7 @@ pub struct UiText {
     pub no_link_hint: &'static str,
     pub items: &'static str,
     pub print_report: &'static str,
+    pub menu: &'static str,
     pub sec_policy: &'static str,
     pub policy_help: &'static str,
     pub level_default: &'static str,
@@ -1411,6 +1412,11 @@ pub fn ui_text(lang: Lang) -> UiText {
             "Report",
             "Informe",
             "Relatório",
+        ),
+        menu: lang.pick(
+            "Menu",
+            "Menú",
+            "Menu",
         ),
         sec_policy: lang.pick(
             "Your rules",
