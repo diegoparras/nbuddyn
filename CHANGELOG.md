@@ -3,7 +3,7 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
-## Unreleased
+## 0.18.0
 
 - The navigation and the controls live behind one menu button, so nothing is cut off on
   narrow screens.
