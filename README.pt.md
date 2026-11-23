@@ -23,7 +23,7 @@ Portas abertas, falhas silenciosas e o que está prestes a quebrar, em uma únic
 
 > [!IMPORTANT]
 > O nbuddyn é um projeto independente, da comunidade. **Não tem afiliação com a n8n GmbH, nem o seu aval ou patrocínio.**
-> Não contém código do n8n e não desbloqueia, substitui nem contorna nenhum recurso licenciado do n8n. Veja [Sem afiliação com o n8n](#sem-afiliação-com-o-n8n).
+> Não contém código do n8n e não desbloqueia nem contorna nenhum recurso licenciado do n8n. Veja [Sem afiliação com o n8n](#sem-afiliação-com-o-n8n).
 
 ## Por quê
 
@@ -154,10 +154,16 @@ O nbuddyn é um projeto independente de código aberto. Não tem afiliação com
 nem o seu aval, patrocínio ou suporte. "n8n" é uma marca da n8n GmbH e é usada aqui
 apenas para dizer com o que o nbuddyn funciona.
 
-O nbuddyn não contém código do n8n. Não modifica o n8n e não desbloqueia, substitui nem
-contorna nenhum recurso dos planos pagos do n8n. Ele lê o banco de dados e o Redis de um
-n8n que você mesmo hospeda, com o acesso que você concede. Para ajuda com o n8n, procure
-os [canais do próprio n8n](https://n8n.io).
+O nbuddyn não contém código do n8n. Não modifica o n8n e não desbloqueia nem contorna
+nenhum recurso dos planos pagos do n8n: não liga nada dentro do n8n. Ele lê o banco de
+dados e o Redis de um n8n que você mesmo hospeda, com o acesso que você concede.
+
+Parte do que o nbuddyn mostra se parece com coisas que o n8n oferece nos planos pagos,
+como a visão de workers, um histórico mais longo de execuções e os eventos de auditoria.
+O nbuddyn monta a sua própria visão, mais simples e de fora, e não as substitui. Se você
+precisa desses recursos dentro do n8n, com o suporte do n8n, contrate-os do n8n.
+
+Para ajuda com o n8n, procure os [canais do próprio n8n](https://n8n.io).
 
 ## Licença
 

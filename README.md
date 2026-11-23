@@ -23,7 +23,7 @@ Open doors, silent failures and what is about to break, on one page. Read-only, 
 
 > [!IMPORTANT]
 > nbuddyn is an independent, community project. It is **not affiliated with, endorsed by or sponsored by n8n GmbH**.
-> It contains no n8n code and does not unlock, replace or bypass any licensed n8n feature. See [Not affiliated with n8n](#not-affiliated-with-n8n).
+> It contains no n8n code and does not unlock or bypass any licensed n8n feature. See [Not affiliated with n8n](#not-affiliated-with-n8n).
 
 ## Why
 
@@ -153,10 +153,16 @@ nbuddyn is an independent open-source project. It is not affiliated with, endors
 sponsored by or supported by n8n GmbH. "n8n" is a trademark of n8n GmbH and is used here
 only to say what nbuddyn works with.
 
-nbuddyn contains no n8n code. It does not modify n8n, and it does not unlock, replace or
-bypass any feature of n8n's paid plans. It reads the database and Redis of an n8n you
-host yourself, with the access you give it. For help with n8n itself, go to
-[n8n's own channels](https://n8n.io).
+nbuddyn contains no n8n code. It does not modify n8n, and it does not unlock or bypass
+any feature of n8n's paid plans: it turns nothing on inside n8n. It reads the database
+and Redis of an n8n you host yourself, with the access you give it.
+
+Some of what nbuddyn shows resembles things n8n offers in its paid plans, such as the
+worker view, a longer history of executions, and audit events. nbuddyn builds its own,
+simpler view from the outside and is not a substitute for them. If you need those
+features inside n8n, with n8n's support behind them, get them from n8n.
+
+For help with n8n itself, go to [n8n's own channels](https://n8n.io).
 
 ## License
 

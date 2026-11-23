@@ -16,7 +16,7 @@ A security problem is different: please do not open a public issue. Follow
 
 1. **nbuddyn only reads.** No change may write to n8n's database, Redis or files.
 2. **No n8n code.** nbuddyn is independent of n8n GmbH. Do not copy code from n8n's
-   repository, and do not add anything that unlocks or replaces a paid n8n feature.
+   repository, and do not add anything that turns on a paid n8n feature.
 3. **Three languages.** Text people see goes in `src/i18n.rs` in English, Spanish and
    Portuguese.
 
