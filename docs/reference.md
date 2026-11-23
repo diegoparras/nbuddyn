@@ -64,6 +64,12 @@ page shows each workflow's average and slowest run:
 GRANT SELECT ("stoppedAt") ON execution_entity TO nbuddyn;
 ```
 
+Every number opens. Click a day to see which workflows ran on it, the ones that failed
+first. Click a workflow to see its own days, and pick a day there to list its executions:
+when each started, how it ended, how long it took, and a link that opens it in n8n. That
+list is read from n8n at that moment and only covers what n8n still keeps; nbuddyn keeps
+the totals, not the executions, and never reads what went through them.
+
 The history can be downloaded as a spreadsheet (CSV) from the History page, and as a
 backup file from Settings.
 

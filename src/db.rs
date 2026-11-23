@@ -90,6 +90,92 @@ impl Source {
     }
 }
 
+/// One execution as a list shows it: when, how it ended and how long it
+/// took. Never what went through it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ExecutionRow {
+    pub id: i64,
+    /// n8n's own word: `success`, `error`, `running`...
+    pub status: String,
+    /// The time of day it started, `HH:MM:SS`, in the instance's time zone.
+    pub started: String,
+    /// Milliseconds, when n8n recorded an end and nbuddyn may read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ms: Option<i64>,
+    /// n8n no longer keeps it, so there is nothing to open there.
+    pub deleted: bool,
+}
+
+impl Source {
+    /// The executions of one workflow on one day that n8n still has, newest
+    /// first. Read when someone asks; nothing of it is kept.
+    pub async fn list_executions(
+        &self,
+        workflow: &str,
+        day: &str,
+        limit: i64,
+    ) -> Result<Vec<ExecutionRow>, String> {
+        match self {
+            Source::Postgres(client) => pg_list_executions(client, workflow, day, limit)
+                .await
+                .map_err(|e| describe(&e)),
+            Source::Sqlite(path) => {
+                let (path, workflow, day) = (path.clone(), workflow.to_owned(), day.to_owned());
+                blocking(move || sqlite::list_executions(&path, &workflow, &day, limit)).await
+            }
+        }
+    }
+}
+
+async fn pg_list_executions(
+    client: &Client,
+    workflow: &str,
+    day: &str,
+    limit: i64,
+) -> Result<Vec<ExecutionRow>, DbError> {
+    let may_time: bool = client
+        .query_one(
+            r#"select has_column_privilege('execution_entity', 'stoppedAt', 'select')"#,
+            &[],
+        )
+        .await?
+        .get(0);
+    let took = if may_time {
+        r#"case when e."stoppedAt" >= e."startedAt"
+                then (extract(epoch from e."stoppedAt" - e."startedAt") * 1000)::bigint end"#
+    } else {
+        "null::bigint"
+    };
+    // The day is cut exactly as the history cuts it, so the list adds up to
+    // the totals it is opened from.
+    let rows = client
+        .query(
+            &format!(
+                r#"select e.id::bigint, e.status::text,
+                          to_char(coalesce(e."startedAt", e."createdAt"), 'HH24:MI:SS'),
+                          {took},
+                          e."deletedAt" is not null
+                   from execution_entity e
+                   where e."workflowId" = $1::text
+                     and to_char(coalesce(e."startedAt", e."createdAt"), 'YYYY-MM-DD') = $2::text
+                   order by coalesce(e."startedAt", e."createdAt") desc, e.id desc
+                   limit $3::bigint"#
+            ),
+            &[&workflow, &day, &limit],
+        )
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| ExecutionRow {
+            id: r.get(0),
+            status: r.get(1),
+            started: r.get::<_, Option<String>>(2).unwrap_or_default(),
+            ms: r.get(3),
+            deleted: r.get(4),
+        })
+        .collect())
+}
+
 /// The tables and columns nbuddyn cannot work without.
 pub const REQUIRED: &[(&str, &[&str])] = &[
     (

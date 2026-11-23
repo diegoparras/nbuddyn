@@ -128,6 +128,13 @@
   th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   td.num { white-space: nowrap; }
   td.bad { color: var(--red-ink); }
+  tr.pick, .pickable { cursor: pointer; }
+  tr.pick:hover td { background: var(--raised); }
+  tr.pick:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+  .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 16px; font-size: 14px; color: var(--muted); }
+  .crumbs a { color: var(--amber); text-decoration: none; }
+  .crumbs a:hover { text-decoration: underline; }
+  .crumbs b { color: var(--ink); font-weight: 600; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
   .tile .n { font: 500 26px var(--mono); line-height: 1.2; }
@@ -1072,7 +1079,7 @@
     return "M" + x + " " + (y + hgt) + "V" + (y + r) + "a" + r + " " + r + " 0 0 1 " + r + " " + -r + "H" + (x + w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r + "V" + (y + hgt) + "Z";
   }
   /* Shared frame: gridlines, y ticks, three x labels, and one hover band per day. */
-  function frame(chart, days, top, ticks, height, tipRows) {
+  function frame(chart, days, top, ticks, height, tipRows, onPick) {
     var width = Math.max(280, Math.floor(chart.getBoundingClientRect().width));
     var m = { l: 40, r: 34, t: 10, b: 24 };
     var plotW = width - m.l - m.r, plotH = height - m.t - m.b, band = plotW / days.length;
@@ -1099,6 +1106,11 @@
     tip.hidden = true;
     var hide = function () { tip.hidden = true; glow.setAttribute("opacity", 0); };
     chart.onpointerleave = hide;
+    chart.classList.toggle("pickable", !!onPick);
+    chart.onclick = !onPick ? null : function (ev) {
+      var i = Math.floor((ev.clientX - chart.getBoundingClientRect().left - m.l) / band);
+      if (i >= 0 && i < days.length) onPick(days[i]);
+    };
     chart.onpointermove = function (ev) {
       var box = chart.getBoundingClientRect();
       var i = Math.floor((ev.clientX - box.left - m.l) / band);
@@ -1118,13 +1130,13 @@
     };
     return g;
   }
-  function drawRuns(chart, hist, ui) {
+  function drawRuns(chart, hist, ui, onPick) {
     var top = niceTop(Math.max.apply(null, hist.days.map(runsOf)));
     var g = frame(chart, hist.days, top, [0, top / 2, top], 210, function (d) {
       var rows = [[SERIES.ok, num(d.ok), ui.runs_ok], [SERIES.failed, num(d.failed), ui.runs_failed]];
       if (d.canceled) rows.push([SERIES.canceled, num(d.canceled), ui.runs_canceled]);
       return rows;
-    });
+    }, onPick);
     var w = Math.max(1, Math.min(24, g.band - 2)), gap = w >= 4 ? 2 : 0;
     hist.days.forEach(function (d, i) {
       var x = g.x(i) + (g.band - w) / 2, base = g.m.t + g.plotH;
@@ -1157,12 +1169,28 @@
     chart.setAttribute("aria-label", ui.score_title + (last ? ": " + last.score + "/100" : ""));
   }
 
-  function renderHistory() {
-    var r = state.report, ui = r.ui, hist = state.history, view = $("view-history");
-    var title = h("h1", null, ui.history);
-    if (!hist) return fill(view, h("header", null, title), skeleton(3), h("div", { style: "height:16px" }), skeleton(6));
-    if (!hist.enabled) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.history_off)));
-    view.classList.remove("loading");
+  /* Where in the history someone is: a day, a workflow, or both. It lives in the
+     address, so Back works and a link can be shared. */
+  function drillNow() {
+    var q = new URLSearchParams((location.hash.split("?")[1] || ""));
+    var day = q.get("day"), wf = q.get("wf");
+    return { day: /^\d{4}-\d{2}-\d{2}$/.test(day || "") ? day : null, wf: wf || null };
+  }
+  function drillTo(day, wf) {
+    var q = [];
+    if (day) q.push("day=" + day);
+    if (wf) q.push("wf=" + encodeURIComponent(wf));
+    location.hash = "#/history" + (q.length ? "?" + q.join("&") : "");
+  }
+  /* A table row that goes somewhere, for the mouse and for the keyboard. */
+  function pickable(tr, go) {
+    tr.className = "pick";
+    tr.tabIndex = 0;
+    tr.setAttribute("role", "link");
+    tr.addEventListener("click", function (ev) { if (!ev.target.closest("a, button")) go(); });
+    tr.addEventListener("keydown", function (ev) { if (ev.key === "Enter") go(); });
+  }
+  function rangeButtons(ui, view) {
     var ranges = h("div", { class: "ranges", role: "group", "aria-label": ui.history });
     RANGES.forEach(function (n) {
       ranges.appendChild(h("button", { type: "button", "aria-pressed": String(n === state.range), text: n + " " + ui.days, on: { click: function () {
@@ -1170,9 +1198,116 @@
         state.range = n;
         store("nbuddyn.range", String(n));
         view.classList.add("loading");
+        state.drillData = {};
         loadHistory();
       } } }));
     });
+    return ranges;
+  }
+  function workflowTable(list, ui, day) {
+    var timed = list.some(function (w) { return w.timed; });
+    var heads = [[ui.col_workflow], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"]];
+    if (timed) heads.push([ui.col_avg, "num optional"], [ui.col_slowest, "num optional"]);
+    if (!day) heads.push([ui.col_last, "num optional"]);
+    var t = tableOf(heads, list.map(function (w) {
+      var runs = runsOf(w);
+      var row = [[w.name], [num(runs)], [num(w.failed), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)]];
+      if (timed) row.push([w.timed ? duration(w.ms / w.timed) : "–"], [w.timed ? duration(w.slowest) : "–"]);
+      if (!day) row.push([dayLabel(w.last_day)]);
+      return row;
+    }));
+    Array.prototype.forEach.call(t.querySelectorAll("tbody tr"), function (tr, i) { pickable(tr, function () { drillTo(day, list[i].id); }); });
+    return t;
+  }
+  /* Asks once per place and redraws when the answer comes; a later redraw shows
+     what is already known while it asks again. */
+  function drillFetch(key, path) {
+    state.drillData = state.drillData || {};
+    state.drillAsked = state.drillAsked || {};
+    var stamp = state.history && state.report ? state.report.generated_at : 0;
+    if (state.drillAsked[key] !== stamp) {
+      state.drillAsked[key] = stamp;
+      get(at(path)).then(function (data) { state.drillData[key] = data; if (state.view === "history") renderHistory(); })
+        .catch(function () { state.drillData[key] = { failed: true }; if (state.view === "history") renderHistory(); });
+    }
+    return state.drillData[key];
+  }
+  function renderDrill(view, hist, ui, at0) {
+    var r = state.report, crumbs = h("nav", { class: "crumbs", "aria-label": ui.history }, h("a", { href: "#/history", text: ui.history }));
+    var series = at0.wf ? drillFetch("wf:" + at0.wf + ":" + state.range, "api/history/workflow?id=" + encodeURIComponent(at0.wf) + "&days=" + state.range) : null;
+    var day = at0.day && !at0.wf ? drillFetch("day:" + at0.day, "api/history/day?day=" + at0.day) : null;
+    var runs = at0.day && at0.wf ? drillFetch("ex:" + at0.wf + ":" + at0.day, "api/executions?workflow=" + encodeURIComponent(at0.wf) + "&day=" + at0.day) : null;
+    var sep = function () { return h("span", { "aria-hidden": "true", text: "›" }); };
+    if (at0.wf) {
+      crumbs.appendChild(sep());
+      var name = series && series.name ? series.name : "…";
+      crumbs.appendChild(at0.day ? h("a", { href: "#/history?wf=" + encodeURIComponent(at0.wf), text: name }) : h("b", null, name));
+    }
+    if (at0.day) { crumbs.appendChild(sep()); crumbs.appendChild(h("b", null, dayLabel(at0.day, true))); }
+    var head = h("header", null, h("h1", null, at0.wf ? (series && series.name ? series.name : ui.history) : dayLabel(at0.day, true)));
+    var body = [];
+
+    if (!at0.wf) {
+      /* One day: which workflows ran. */
+      if (!day) body.push(skeleton(5));
+      else {
+        var list = day.workflows || [], sum = { ok: 0, failed: 0, canceled: 0 };
+        list.forEach(function (w) { sum.ok += w.ok || 0; sum.failed += w.failed || 0; sum.canceled += w.canceled || 0; });
+        var total = runsOf(sum);
+        body.push(h("div", "tiles", tile(compact(total), ui.runs_total), tile(compact(sum.ok), ui.runs_ok), tile(compact(sum.failed), ui.runs_failed, sum.failed ? "risk" : ""), tile(percent(sum.failed, total), ui.failure_rate)));
+        body.push(h("div", "card", h("h2", null, ui.inv_workflows), list.length ? workflowTable(list, ui, at0.day) : h("div", "empty", h("p", null, ui.day_empty))));
+      }
+      return fill.apply(null, [view, head, crumbs].concat(body));
+    }
+
+    /* One workflow: its own days, and the executions of the day picked. */
+    var chart = svg("svg", { "class": "chart", role: "img" });
+    if (r.n8n_url && series && series.path) head.appendChild(h("a", { class: "btn small", href: r.n8n_url + series.path, target: "_blank", rel: "noopener noreferrer" }, ui.open_in_n8n));
+    head.appendChild(rangeButtons(ui, view));
+    if (!series) body.push(skeleton(5));
+    else {
+      var all = runsOf(series.totals);
+      body.push(h("div", "tiles", tile(compact(all), ui.runs_total), tile(compact(series.totals.ok || 0), ui.runs_ok), tile(compact(series.totals.failed || 0), ui.runs_failed, series.totals.failed ? "risk" : ""), tile(percent(series.totals.failed || 0, all), ui.failure_rate)));
+      var ran = series.days.filter(function (d) { return runsOf(d) > 0; }).reverse();
+      var days = tableOf([[ui.col_day], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_avg, "num optional"]],
+        ran.map(function (d) { return [[dayLabel(d.day, true)], [num(d.ok)], [num(d.failed), d.failed ? "bad" : ""], [d.timed ? duration(d.ms / d.timed) : "–"]]; }));
+      Array.prototype.forEach.call(days.querySelectorAll("tbody tr"), function (tr, i) {
+        pickable(tr, function () { drillTo(ran[i].day, at0.wf); });
+        if (ran[i].day === at0.day) tr.setAttribute("aria-current", "true");
+      });
+      body.push(h("div", "card", h("h2", null, ui.runs_title), h("figure", null, chart),
+        ran.length ? h("details", { class: "daytable", open: !at0.day }, h("summary", null, ui.table_by_day), days) : h("div", "empty", h("p", null, ui.history_empty))));
+    }
+    var card = h("div", "card", h("h2", null, ui.exec_title + (at0.day ? " · " + dayLabel(at0.day, true) : "")));
+    if (!at0.day) card.appendChild(h("div", "empty", h("p", null, ui.exec_pick)));
+    else if (!runs) card.appendChild(h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:70%;height:16px" })));
+    else if (runs.failed || runs.error) card.appendChild(h("div", "empty", h("p", null, ui.exec_failed_read + (runs.error ? ": " + runs.error : ""))));
+    else if (!runs.executions.length) card.appendChild(h("div", "empty", h("p", null, ui.exec_gone)));
+    else {
+      var kind = { success: ["ok", ui.st_ok], error: ["high", ui.st_failed], crashed: ["high", ui.st_failed], canceled: ["info", ui.st_canceled], running: ["low", ui.st_running], "new": ["low", ui.st_running], waiting: ["medium", ui.st_waiting] };
+      card.appendChild(tableOf([[ui.col_time], [ui.col_result], [ui.col_took, "num"], ["", "num"]], runs.executions.map(function (e) {
+        var k = kind[e.status] || ["info", e.status];
+        var open = e.deleted ? h("span", "off", ui.exec_deleted)
+          : (r.n8n_url && series && series.path ? h("a", { href: r.n8n_url + series.path + "/executions/" + e.id, target: "_blank", rel: "noopener noreferrer", text: ui.exec_open + " ↗" }) : h("span", "mono off", "#" + e.id));
+        return [[h("span", "mono", e.started)], [h("span", "pill " + k[0], k[1])], [e.ms === undefined ? "–" : duration(e.ms)], [open]];
+      })));
+      if (runs.more) card.appendChild(h("p", { class: "hint", style: "margin:0;padding:12px 18px 0", text: ui.exec_more }));
+      card.appendChild(h("p", { class: "hint", style: "margin:0;padding:12px 18px 16px", text: ui.exec_note }));
+    }
+    body.push(h("div", { style: "height:16px" }), card);
+    fill.apply(null, [view, head, crumbs].concat(body));
+    if (series && series.days.length && !view.hidden) drawRuns(chart, series, ui, function (d) { drillTo(d.day, at0.wf); });
+  }
+
+  function renderHistory() {
+    var r = state.report, ui = r.ui, hist = state.history, view = $("view-history");
+    var title = h("h1", null, ui.history);
+    if (!hist) return fill(view, h("header", null, title), skeleton(3), h("div", { style: "height:16px" }), skeleton(6));
+    if (!hist.enabled) return fill(view, h("header", null, title), h("div", "card empty", h("p", null, ui.history_off)));
+    view.classList.remove("loading");
+    var where = drillNow();
+    if (where.day || where.wf) return renderDrill(view, hist, ui, where);
+    var ranges = rangeButtons(ui, view);
 
     var total = runsOf(hist.totals);
     var tiles = h("div", "tiles",
@@ -1185,29 +1320,20 @@
     [["ok", ui.runs_ok], ["failed", ui.runs_failed]].concat(hist.totals.canceled ? [["canceled", ui.runs_canceled]] : []).forEach(function (s) {
       legend.appendChild(h("span", null, h("i", { style: "background:" + SERIES[s[0]] }), s[1]));
     });
+    var newest = hist.days.slice().reverse();
+    var dayTable = tableOf([[ui.col_day], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_score, "num"]],
+      newest.map(function (d) { return [[dayLabel(d.day, true)], [num(d.ok)], [num(d.failed), d.failed ? "bad" : ""], [d.score === undefined ? "–" : d.score]]; }));
+    Array.prototype.forEach.call(dayTable.querySelectorAll("tbody tr"), function (tr, i) { pickable(tr, function () { drillTo(newest[i].day); }); });
     var runsChart = svg("svg", { "class": "chart", role: "img" }), scoreChart = svg("svg", { "class": "chart", role: "img" });
     var charts = h("div", "stack",
       h("div", "card", h("h2", null, ui.runs_title, legend), h("figure", null, runsChart),
-        h("details", "daytable", h("summary", null, ui.table_by_day),
-          tableOf([[ui.col_day], [ui.runs_ok, "num"], [ui.runs_failed, "num"], [ui.col_score, "num"]],
-            hist.days.slice().reverse().map(function (d) { return [[dayLabel(d.day, true)], [num(d.ok)], [num(d.failed), d.failed ? "bad" : ""], [d.score === undefined ? "–" : d.score]]; })))),
+        h("details", "daytable", h("summary", null, ui.table_by_day), dayTable)),
       h("div", "card", h("h2", null, ui.score_title), h("figure", null, scoreChart)));
 
     var workflows = h("div", "card", h("h2", null, ui.inv_workflows));
     if (!hist.workflows.length) workflows.appendChild(h("div", "empty", h("p", null, ui.history_empty)));
     else {
-      var timed = hist.workflows.some(function (w) { return w.timed; });
-      var heads = [[ui.col_workflow], [ui.col_runs, "num"], [ui.col_failed, "num"], [ui.col_rate, "num"]];
-      if (timed) heads.push([ui.col_avg, "num optional"], [ui.col_slowest, "num optional"]);
-      heads.push([ui.col_last, "num optional"]);
-      var t = tableOf(heads,
-        hist.workflows.map(function (w) {
-          var runs = runsOf(w);
-          var row = [[whereOf({ workflow: w.name, path: w.path }, ui)], [num(runs)], [num(w.failed), w.failed ? "bad" : ""], [percent(w.failed || 0, runs)]];
-          if (timed) row.push([w.timed ? duration(w.ms / w.timed) : "–"], [w.timed ? duration(w.slowest) : "–"]);
-          row.push([dayLabel(w.last_day)]);
-          return row;
-        }));
+      var t = workflowTable(hist.workflows, ui, null);
       workflows.appendChild(t);
       var rows = t.querySelectorAll("tbody tr");
       if (rows.length > 12 && !state.printing) {
@@ -1221,8 +1347,8 @@
     }
     var csv = h("a", { class: "btn small", href: at("api/history.csv?days=" + state.range), download: "nbuddyn-history.csv" }, icon("download"), ui.download_csv);
     fill(view, h("header", null, title, csv, ranges), tiles, charts, h("div", { style: "height:16px" }), workflows,
-      h("p", "hint", (hist.since ? ui.history_since + " " + dayLabel(hist.since, true) + ". " : "") + ui.history_note));
-    if (hist.days.length && !view.hidden) { drawRuns(runsChart, hist, ui); drawScore(scoreChart, hist, ui); }
+      h("p", "hint", ui.drill_hint + " " + (hist.since ? ui.history_since + " " + dayLabel(hist.since, true) + ". " : "") + ui.history_note));
+    if (hist.days.length && !view.hidden) { drawRuns(runsChart, hist, ui, function (d) { drillTo(d.day); }); drawScore(scoreChart, hist, ui); }
   }
 
   /* ---------- Credentials ---------- */

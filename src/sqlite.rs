@@ -187,6 +187,44 @@ fn snapshot(conn: &Connection) -> rusqlite::Result<Snapshot> {
     })
 }
 
+/// The executions of one workflow on one day that n8n still has, newest first.
+pub fn list_executions(
+    path: &Path,
+    workflow: &str,
+    day: &str,
+    limit: i64,
+) -> Result<Vec<crate::db::ExecutionRow>, String> {
+    let conn = open(path)?;
+    let mut query = conn
+        .prepare(
+            r#"select e.id, e.status, time(coalesce(e."startedAt", e."createdAt")),
+                      case when e."stoppedAt" >= e."startedAt"
+                           then cast((julianday(e."stoppedAt") - julianday(e."startedAt")) * 86400000
+                                     as integer) end,
+                      e."deletedAt" is not null
+               from execution_entity e
+               where e."workflowId" = ?1
+                 and date(coalesce(e."startedAt", e."createdAt")) = ?2
+               order by coalesce(e."startedAt", e."createdAt") desc, e.id desc
+               limit ?3"#,
+        )
+        .map_err(text)?;
+    let rows = query
+        .query_map(rusqlite::params![workflow, day, limit], |r| {
+            Ok(crate::db::ExecutionRow {
+                id: r.get(0)?,
+                status: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                started: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ms: r.get(3)?,
+                deleted: r.get(4)?,
+            })
+        })
+        .map_err(text)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(text)?;
+    Ok(rows)
+}
+
 pub fn read_executions(
     path: &Path,
     cursor: i64,

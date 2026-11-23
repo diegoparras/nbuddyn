@@ -480,6 +480,7 @@ impl History {
             for (id, runs) in stored.iter().flat_map(|d| &d.runs) {
                 counts.add(*runs);
                 let entry = workflows.entry(id).or_insert_with(|| WorkflowView {
+                    id: id.clone(),
                     name: self.names.get(id).cloned().unwrap_or_else(|| id.clone()),
                     path: crate::radar::workflow_path(id),
                     counts: Counts::default(),
@@ -508,6 +509,75 @@ impl History {
             totals,
             days,
             workflows,
+        }
+    }
+}
+
+/// One workflow across the days, to tell a bad day from a bad habit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct WorkflowSeries {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub totals: Counts,
+    pub days: Vec<DayView>,
+}
+
+impl History {
+    /// The workflows that ran on one day: the ones that failed first, then
+    /// the busiest.
+    pub fn day(&self, day: &str) -> Vec<WorkflowView> {
+        let mut workflows: Vec<WorkflowView> = self
+            .days
+            .get(day)
+            .into_iter()
+            .flat_map(|stored| &stored.runs)
+            .map(|(id, runs)| WorkflowView {
+                id: id.clone(),
+                name: self.names.get(id).cloned().unwrap_or_else(|| id.clone()),
+                path: crate::radar::workflow_path(id),
+                counts: *runs,
+                last_day: day.to_owned(),
+            })
+            .collect();
+        workflows.sort_by(|a, b| {
+            b.counts
+                .failed
+                .cmp(&a.counts.failed)
+                .then_with(|| b.counts.total().cmp(&a.counts.total()))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        workflows
+    }
+
+    /// One workflow, day by day, over the last `span` days.
+    pub fn workflow(&self, id: &str, span: u32) -> WorkflowSeries {
+        let Some(today) = day_number(&self.today) else {
+            return WorkflowSeries::default();
+        };
+        let mut totals = Counts::default();
+        let days = (today - i64::from(span.max(1)) + 1..=today)
+            .map(|number| {
+                let day = day_name(number);
+                let counts = self
+                    .days
+                    .get(&day)
+                    .and_then(|stored| stored.runs.get(id))
+                    .copied()
+                    .unwrap_or_default();
+                totals.add(counts);
+                DayView {
+                    day,
+                    counts,
+                    score: None,
+                }
+            })
+            .collect();
+        WorkflowSeries {
+            name: self.names.get(id).cloned().unwrap_or_else(|| id.to_owned()),
+            path: crate::radar::workflow_path(id),
+            totals,
+            days,
         }
     }
 }
@@ -542,6 +612,8 @@ pub struct DayView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkflowView {
+    /// n8n's id for the workflow, to ask about it alone.
+    pub id: String,
     pub name: String,
     /// Path under n8n's address; the workflow may no longer exist there.
     #[serde(skip_serializing_if = "Option::is_none")]

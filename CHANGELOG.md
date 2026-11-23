@@ -3,6 +3,11 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## Unreleased
+
+- **The history opens up.** Click a day to see its workflows, a workflow to see its own
+  days, and a day there to list its executions, each with a link into n8n.
+
 ## 0.20.0
 
 - New check: the main n8n process is not running, while workers still are.

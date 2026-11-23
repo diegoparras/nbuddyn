@@ -163,6 +163,9 @@ pub fn router(state: Arc<AppState>) -> Router {
     let protected = Router::new()
         .route("/api/report", get(report))
         .route("/api/history", get(history_report))
+        .route("/api/history/day", get(history_day))
+        .route("/api/history/workflow", get(history_workflow))
+        .route("/api/executions", get(executions_list))
         .route("/api/activity", get(activity))
         .route("/api/credentials", get(credentials))
         .route("/api/history.csv", get(history_csv))
@@ -540,6 +543,117 @@ async fn read_history(
         error,
         view: history.as_ref().map(|h| h.view(span)).unwrap_or_default(),
     }
+}
+
+/// A date as the history writes it, and nothing else.
+fn is_day(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                *b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
+}
+
+#[derive(Deserialize)]
+struct DayQuery {
+    day: String,
+    instance: Option<String>,
+}
+
+/// The workflows that ran on one day.
+async fn history_day(State(state): State<Arc<AppState>>, Query(q): Query<DayQuery>) -> Response {
+    if !is_day(&q.day) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await;
+    let workflows = history.as_ref().map(|h| h.day(&q.day)).unwrap_or_default();
+    Json(serde_json::json!({ "day": q.day, "workflows": workflows })).into_response()
+}
+
+#[derive(Deserialize)]
+struct WorkflowQuery {
+    id: String,
+    days: Option<u32>,
+    instance: Option<String>,
+}
+
+/// One workflow, day by day.
+async fn history_workflow(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<WorkflowQuery>,
+) -> Response {
+    let span = q.days.unwrap_or(DEFAULT_SPAN).clamp(1, MAX_SPAN);
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let runtime = state.runtime(&instance.id).await;
+    let history = runtime.history.read().await;
+    Json(
+        history
+            .as_ref()
+            .map(|h| h.workflow(&q.id, span))
+            .unwrap_or_default(),
+    )
+    .into_response()
+}
+
+/// How many executions one list shows. The totals above it are always whole.
+const EXECUTIONS_MAX: usize = 200;
+
+#[derive(Deserialize)]
+struct ExecutionsQuery {
+    workflow: String,
+    day: String,
+    instance: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ExecutionsView {
+    executions: Vec<crate::db::ExecutionRow>,
+    /// True when the day had more than the list shows.
+    more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// The executions of one workflow on one day, read from n8n as it is asked.
+/// Only what n8n still keeps can be listed; nbuddyn keeps the totals.
+async fn executions_list(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ExecutionsQuery>,
+) -> Response {
+    if !is_day(&q.day) || q.workflow.is_empty() || q.workflow.len() > 64 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let (_, instance) = state.pick(q.instance.as_deref()).await;
+    let read = async {
+        let source =
+            crate::db::connect(&instance.database_url, instance.timezone.as_deref()).await?;
+        source
+            .list_executions(&q.workflow, &q.day, EXECUTIONS_MAX as i64 + 1)
+            .await
+    };
+    let view = match read.await {
+        Ok(mut executions) => {
+            let more = executions.len() > EXECUTIONS_MAX;
+            executions.truncate(EXECUTIONS_MAX);
+            ExecutionsView {
+                executions,
+                more,
+                error: None,
+            }
+        }
+        Err(reason) => ExecutionsView {
+            executions: Vec::new(),
+            more: false,
+            error: Some(reason),
+        },
+    };
+    Json(view).into_response()
 }
 
 /// The history as the page gets it, for the MCP tools.
