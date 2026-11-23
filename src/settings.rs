@@ -124,6 +124,13 @@ pub struct Saved {
     /// Whether accepting a finding needs a reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accept_needs_note: Option<bool>,
+    /// Whether the MCP endpoint answers. Absent: only if a token came from
+    /// the environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_enabled: Option<bool>,
+    /// The hash of the MCP token made on the page. The token is not kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_token_hash: Option<String>,
     /// Whether unused credentials n8n made for itself are reported too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_own_credentials: Option<bool>,

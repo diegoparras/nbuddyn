@@ -50,7 +50,10 @@ n8n users' password hashes. The documented database grants do not allow reading 
 | Links into n8n | A crafted workflow id | Ids outside `[A-Za-z0-9_-]` get no link; the base address is validated |
 | Single sign-on | Forged or replayed ID token | RS256 signature checked against the provider's keys; issuer, audience, expiry, nonce checked; PKCE; flow bound to the starting browser |
 | Single sign-on | An outsider with a valid account at the provider | Only listed addresses and domains get a role |
-| MCP endpoint | Unauthenticated use | Off without a token; token of 24+ characters compared in constant time |
+| MCP endpoint | Unauthenticated use | Off until turned on; needs a token, compared in constant time or by hash |
+| MCP sign-in | A stranger connecting an assistant | Only a signed-in administrator can allow it, on a page that names who asks and where they are sent back; PKCE (S256) required; codes work once, for five minutes |
+| MCP sign-in | A stolen token | Access tokens last an hour and renewal changes both tokens; every token is kept only as a hash; a connection can be taken back in Settings |
+| MCP sign-in | Being sent to a hostile address | Only the exact address the assistant registered is used, and it must be https (or this machine) |
 | MCP endpoint | A prompt-injected assistant | Every tool only reads; nothing it can call changes n8n or nbuddyn |
 | Settings | A database address pointing somewhere unexpected | Admin only; this is inherent in the feature and audited |
 | Alert webhook | Server-side request to an internal address | Admin only; audited. Not otherwise restricted (see open points) |

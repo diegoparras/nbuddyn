@@ -3,6 +3,15 @@
 Every release of nbuddyn, newest first. Versions follow [semantic versioning](https://semver.org):
 while the first number is 0, the second one changes when something you rely on may change.
 
+## Unreleased
+
+- **Assistants can sign in.** claude.ai and other MCP clients connect with the address
+  alone: an administrator approves them on a page, and no token is copied (OAuth 2.1
+  with PKCE and automatic client registration).
+- **The MCP endpoint is managed from Settings**: turn it on or off, make or remove a
+  token, see which assistants are connected and disconnect them. `NBUDDYN_MCP_TOKEN`
+  keeps working.
+
 ## 0.18.0
 
 - The navigation and the controls live behind one menu button, so nothing is cut off on

@@ -224,18 +224,35 @@ decision to act stays with you and inside n8n.
 
 ## For AI assistants (MCP)
 
-Set `NBUDDYN_MCP_TOKEN` and nbuddyn answers the Model Context Protocol at `/mcp`, so an
-assistant such as Claude can ask about your n8n in plain words. It offers six tools,
-all read-only: `list_instances`, `get_status`, `list_findings`, `list_credentials`, `get_activity` and
-`get_history`. They return what the page
-shows and nothing else: no secrets, no execution data, and no way to change n8n.
+nbuddyn answers the Model Context Protocol at `/mcp`, so an assistant such as Claude can
+ask about your n8n in plain words. It offers six tools, all read-only: `list_instances`,
+`get_status`, `list_findings`, `list_credentials`, `get_activity` and `get_history`. They
+return what the page shows and nothing else: no secrets, no execution data, and no way
+to change n8n.
 
-The endpoint is off without a token, and every request must carry it as
-`Authorization: Bearer <token>`. With Claude Code:
+It is off until you turn it on in **Settings → AI assistants (MCP)**. That section shows
+the address to give the assistant, lists the assistants that connected, and lets you
+disconnect any of them.
+
+**Assistants that sign in (claude.ai, Claude Desktop and others).** In claude.ai go to
+Settings → Connectors → Add custom connector and paste the address. Claude sends you to
+nbuddyn, you sign in if you are not, and an administrator presses **Allow**. No token is
+copied anywhere. This is the OAuth 2.1 flow the MCP specification describes: the
+assistant registers itself, proves itself with PKCE, and gets a token that lasts an hour
+and that it renews by itself. A connection nobody uses for 90 days ends.
+
+**Clients that take a fixed token (Claude Code, scripts).** Press **Create token** in the
+same section. It is shown once; nbuddyn keeps only its hash. With Claude Code:
 
 ```bash
 claude mcp add --transport http nbuddyn https://your-nbuddyn-host/mcp --header "Authorization: Bearer your-token"
 ```
+
+A token can also come from the environment in `NBUDDYN_MCP_TOKEN`, which turns the
+endpoint on by itself until Settings says otherwise.
+
+nbuddyn works out its own address from the request. Behind a proxy that does not pass
+the original host on, set `NBUDDYN_PUBLIC_URL`.
 
 ### How sure nbuddyn is
 
@@ -268,7 +285,8 @@ executions and credentials. The score sums up what it can see. It is a radar, no
 | `NBUDDYN_DATA_DIR` | `/data` in the image | Where the history, the saved settings and the accepted findings live. Mount a volume there, or they are lost with the container. Unset outside the image: no history, and nothing can be saved from the page. |
 | `NBUDDYN_HISTORY_DAYS` | `400` | Days of history to keep. |
 | `NBUDDYN_TIMEZONE` | the database's | Decides where a day ends, such as `America/Argentina/Buenos_Aires`. |
-| `NBUDDYN_MCP_TOKEN` | unset | Turns on the MCP endpoint at `/mcp` and is the token clients must send. At least 24 characters. |
+| `NBUDDYN_MCP_TOKEN` | unset | A token for MCP clients, at least 24 characters. Turns the MCP endpoint on until Settings says otherwise. Tokens can also be made in Settings. |
+| `NBUDDYN_PUBLIC_URL` | worked out from the request | The https address people open nbuddyn at. Needed for single sign-on, and for assistants when a proxy hides the original host. |
 | `NBUDDYN_USER` | `nbuddyn` | Name of the first administrator. |
 | `NBUDDYN_LISTEN` | `0.0.0.0:8787` | Address to listen on. |
 | `NBUDDYN_INTERVAL_SECONDS` | `300` | Seconds between scans (minimum 10). |

@@ -10,6 +10,7 @@ mod http;
 mod i18n;
 mod mcp;
 mod model;
+mod oauth;
 mod oidc;
 mod radar;
 mod runners;
@@ -39,8 +40,10 @@ struct Config {
     listen: String,
     user: String,
     password: Option<String>,
-    /// `None` leaves the MCP endpoint off.
+    /// A token for MCP clients, set from outside. `None`: only what Settings says.
     mcp_token: Option<String>,
+    /// The address people open nbuddyn at, when it should not be guessed.
+    public_url: Option<String>,
     /// Seals the secrets nbuddyn stores. `None` makes nbuddyn keep its own key.
     secret_key: Option<String>,
     /// Signing in with the company's accounts. `None` leaves it off.
@@ -160,6 +163,7 @@ impl Config {
             user: var("NBUDDYN_USER").unwrap_or_else(|| "nbuddyn".into()),
             password,
             mcp_token,
+            public_url: var("NBUDDYN_PUBLIC_URL"),
             secret_key: var("NBUDDYN_SECRET_KEY"),
             oidc,
             data_dir: var("NBUDDYN_DATA_DIR"),
@@ -327,6 +331,8 @@ async fn main() -> ExitCode {
             config.data_dir.as_deref().map(std::path::PathBuf::from),
         ),
         mcp_token: config.mcp_token.clone(),
+        public_url: config.public_url.clone(),
+        connect: oauth::Connect::new(config.data_dir.as_deref().map(std::path::Path::new)),
         oidc: config.oidc.map(oidc::Oidc::new),
         defaults: config.defaults,
         saved: RwLock::new(saved),

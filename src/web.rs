@@ -18,6 +18,7 @@ use crate::cluster::Cluster;
 use crate::history::{self, History};
 use crate::i18n::{self, ui_text, Lang, UiText};
 use crate::mcp;
+use crate::oauth;
 use crate::radar::{Finding, Severity};
 use crate::runners::RunnerProbe;
 use crate::settings::{self, Accepted, Defaults, Effective, Instance, Saved, PRIMARY};
@@ -81,8 +82,12 @@ pub struct AppState {
     pub history_enabled: bool,
     /// What the scanner last saw in each instance, by instance id.
     pub runtimes: RwLock<HashMap<String, Arc<Runtime>>>,
-    /// The token MCP clients must present. `None` turns the MCP endpoint off.
+    /// A token for MCP clients set in the environment, if there is one.
     pub mcp_token: Option<String>,
+    /// The address people open nbuddyn at, when it was given.
+    pub public_url: Option<String>,
+    /// The assistants that connected by signing in.
+    pub connect: crate::oauth::Connect,
 }
 
 /// What the scanner last saw in one instance.
@@ -133,6 +138,16 @@ impl AppState {
         (effective, instance)
     }
 
+    /// Whether the MCP endpoint answers. Settings decides; until someone
+    /// chooses there, it is on only if a token came from the environment.
+    pub async fn mcp_on(&self) -> bool {
+        self.saved
+            .read()
+            .await
+            .mcp_enabled
+            .unwrap_or(self.mcp_token.is_some())
+    }
+
     /// The settings in force. What is saved was checked when it was saved, and
     /// the starting values when nbuddyn started, so the fallback is never hit.
     pub async fn effective(&self) -> Effective {
@@ -163,6 +178,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/audit", get(audit_list))
         .route("/api/alerts/test", post(alerts_test))
         .route("/api/policy", get(policy_view).post(policy_save))
+        .route("/api/mcp", get(mcp_view).post(mcp_save))
+        .route("/api/mcp/token", post(mcp_token))
+        .route("/api/mcp/revoke", post(mcp_revoke))
+        .route("/api/connect", get(oauth::pending_view).post(oauth::decide))
         .layer(middleware::from_fn_with_state(state.clone(), require_login));
 
     Router::new()
@@ -179,6 +198,26 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/logout", post(logout))
         // Checks its own token: MCP clients send a bearer token, not a login.
         .route("/mcp", post(mcp::post).fallback(mcp::other))
+        // How an assistant signs in to the MCP endpoint instead of holding a token.
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(oauth::resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(oauth::resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::server_metadata),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server/mcp",
+            get(oauth::server_metadata),
+        )
+        .route("/oauth/register", post(oauth::register))
+        .route("/oauth/authorize", get(oauth::authorize))
+        .route("/oauth/token", post(oauth::token))
         .merge(protected)
         .layer(middleware::from_fn(security_headers))
         .with_state(state)
@@ -276,7 +315,7 @@ struct HistoryReport {
 
 const DAY: u64 = 86_400;
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
@@ -1129,7 +1168,7 @@ async fn read_settings(state: &AppState, q: Which) -> SettingsView {
             id: instance.id,
             name: instance.name,
         },
-        mcp: state.mcp_token.is_some(),
+        mcp: state.mcp_on().await,
         secrets_key: state.settings_store.as_ref().map(|s| match s.key_source() {
             crate::vault::KeySource::Environment => "environment",
             crate::vault::KeySource::DataDirectory => "data",
@@ -1173,7 +1212,7 @@ impl Saving {
 /// A browser only sends this header from nbuddyn's own page: another site
 /// would need permission that nbuddyn never gives. It keeps a page elsewhere
 /// from changing settings with the login the browser remembers.
-const WRITE_HEADER: &str = "x-nbuddyn";
+pub(crate) const WRITE_HEADER: &str = "x-nbuddyn";
 
 /// Applies `change` to a copy of what is saved, writes it, and only then puts
 /// it in force.
@@ -1804,6 +1843,115 @@ async fn policy_save(
         Ok(next)
     })
     .await
+}
+
+/// What Settings shows about the MCP endpoint.
+#[derive(Serialize)]
+struct McpView {
+    enabled: bool,
+    /// The address an assistant is given.
+    url: String,
+    /// A token set in the environment: it works, and cannot be changed here.
+    env_token: bool,
+    /// A token made on this page.
+    token: bool,
+    writable: bool,
+    connections: Vec<oauth::Connection>,
+}
+
+async fn mcp_view(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+) -> Response {
+    if !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(McpView {
+        enabled: state.mcp_on().await,
+        url: format!("{}/mcp", oauth::base_url(&state, &headers)),
+        env_token: state.mcp_token.is_some(),
+        token: state.saved.read().await.mcp_token_hash.is_some(),
+        writable: state.settings_store.is_some(),
+        connections: state.connect.connections(now()),
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct McpForm {
+    enabled: bool,
+}
+
+async fn mcp_save(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(form): Json<McpForm>,
+) -> Response {
+    let detail = if form.enabled { "on" } else { "off" };
+    save_with(&state, &headers, &who, ("mcp", detail), |saved| {
+        let mut next = saved.clone();
+        next.mcp_enabled = Some(form.enabled);
+        Ok(next)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct McpTokenForm {
+    /// `false` removes the token made on this page.
+    create: bool,
+}
+
+/// Makes a token for clients that cannot sign in, or removes it. The token
+/// is shown once, here; only its hash is kept.
+async fn mcp_token(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(form): Json<McpTokenForm>,
+) -> Response {
+    let token = form
+        .create
+        .then(|| format!("nbm_{}", crate::auth::random_hex(24)));
+    let hash = token.as_deref().map(crate::auth::token_hash);
+    let detail = if form.create { "new" } else { "removed" };
+    let answer = save_with(&state, &headers, &who, ("mcp_token", detail), |saved| {
+        let mut next = saved.clone();
+        next.mcp_token_hash = hash;
+        Ok(next)
+    })
+    .await;
+    match token {
+        Some(token) if answer.status().is_success() => {
+            Json(serde_json::json!({ "ok": true, "token": token })).into_response()
+        }
+        _ => answer,
+    }
+}
+
+#[derive(Deserialize)]
+struct McpRevoke {
+    id: String,
+}
+
+async fn mcp_revoke(
+    State(state): State<Arc<AppState>>,
+    Extension(who): Extension<Identity>,
+    headers: HeaderMap,
+    Json(form): Json<McpRevoke>,
+) -> Response {
+    if !headers.contains_key(WRITE_HEADER) || !who.is_admin() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state.connect.revoke(&form.id) {
+        Some(client) => {
+            state.auth.record(now(), &who.name, "mcp_revoke", &client);
+            Saving::done()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// Sends a test message everywhere alerts go, and says what went wrong.

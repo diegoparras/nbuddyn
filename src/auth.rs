@@ -392,7 +392,7 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// What a session is filed under: a token cannot be worked back from it.
-fn token_hash(token: &str) -> String {
+pub(crate) fn token_hash(token: &str) -> String {
     use sha2::Digest;
     hex(&Sha256::digest(token.as_bytes()))
 }
@@ -402,7 +402,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Random bytes from the operating system, as hex.
-fn random_hex(bytes: usize) -> String {
+pub(crate) fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     getrandom::fill(&mut buffer).expect("the operating system provides randomness");
     hex(&buffer)

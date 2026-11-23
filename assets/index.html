@@ -71,6 +71,13 @@
   .fleet .how b { font-size: 22px; font-weight: 600; }
   .inst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
   .inst .who { flex: 1 1 200px; min-width: 0; }
+  .copyrow { display: flex; gap: 8px; }
+  .copyrow input { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 13px; }
+  .consent { max-width: 560px; margin: 6vh auto 0; padding: 28px; }
+  .consent h1 { font-size: 22px; line-height: 1.3; margin: 0 0 12px; }
+  .consent p { color: var(--soft); margin: 0 0 14px; }
+  .consent .back { font: 13px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .consent .actions { margin-top: 22px; }
   .inst .who small { display: block; font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
   .addform { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px; }
   .addform input { flex: 1 1 180px; }
@@ -375,6 +382,7 @@
   <section class="view" id="view-history" hidden></section>
   <section class="view" id="view-credentials" hidden></section>
   <section class="view" id="view-settings" hidden></section>
+  <section class="view" id="view-connect" hidden></section>
   <footer id="footer"></footer>
 </main>
 </div>
@@ -1300,6 +1308,105 @@
     return card;
   }
 
+  /* A field that shows a value to take away, with a button that copies it. */
+  function copyRow(value, ui) {
+    var field = h("input", { type: "text", readOnly: true, value: value, spellcheck: false, "aria-label": ui.copy });
+    field.addEventListener("focus", function () { field.select(); });
+    var button = h("button", { type: "button", class: "btn", text: ui.copy });
+    button.addEventListener("click", function () {
+      var done = function () { toast(ui.copied); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(done, function () { field.select(); });
+      else { field.select(); try { document.execCommand("copy"); done(); } catch (e) {} }
+    });
+    return h("div", "copyrow", field, button);
+  }
+
+  /* Assistants: whether they may connect, which ones did, and a token for the rest. */
+  function mcpCard(ui) {
+    var card = h("div", "card", h("h2", null, ui.sec_mcp)), body = h("div", null, h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:70%;height:16px" })));
+    card.appendChild(body);
+    var shown = null;
+    var draw = function () {
+      get("api/mcp").then(function (m) {
+        body.replaceChildren(h("p", { class: "hint", style: "margin:0;padding:14px 18px 0", text: ui.mcp_help }));
+        var access = h("select", { id: "mcp_enabled", disabled: !m.writable });
+        [["true", ui.on], ["false", ui.off]].forEach(function (o) { access.appendChild(h("option", { value: o[0], text: o[1] })); });
+        access.value = String(m.enabled);
+        access.addEventListener("change", function () {
+          send("api/mcp", { enabled: access.value === "true" }).then(function (answer) { toast(answer.ok ? ui.saved : ui.save_failed); draw(); });
+        });
+        body.appendChild(h("div", "field", h("label", { htmlFor: "mcp_enabled", text: ui.mcp_access }), access));
+        if (!m.enabled) return;
+        body.appendChild(h("div", "field", h("label", null, ui.mcp_url), copyRow(m.url, ui), h("div", "help", ui.mcp_url_help)));
+
+        var list = h("div", "field", h("label", null, ui.mcp_connections));
+        if (!m.connections.length) list.appendChild(h("div", "help", ui.mcp_none));
+        m.connections.forEach(function (c) {
+          list.appendChild(h("div", { class: "inst", style: "padding-left:0;padding-right:0" },
+            h("div", "who", c.client, h("small", null, ui.mcp_by + " " + c.user + " · " + ui.mcp_used + " " + relative(c.last_used))),
+            h("button", { type: "button", class: "btn small", text: ui.mcp_disconnect, on: { click: function () {
+              if (!window.confirm(ui.mcp_disconnect_confirm + "\n\n" + c.client)) return;
+              send("api/mcp/revoke", { id: c.id }).then(function (answer) { toast(answer.ok ? ui.mcp_disconnected : ui.save_failed); draw(); });
+            } } })));
+        });
+        body.appendChild(list);
+
+        var token = h("div", "field", h("label", null, ui.mcp_token_title), h("div", "help", ui.mcp_token_help));
+        if (shown) token.appendChild(h("div", { style: "margin-top:10px" }, copyRow(shown, ui), h("div", { class: "help", style: "color:var(--amber)", text: ui.mcp_token_once })));
+        else token.appendChild(h("div", { class: "help", style: "margin-top:8px", text: m.token ? ui.mcp_token_set : ui.mcp_token_none }));
+        if (m.env_token) token.appendChild(h("div", "help", ui.mcp_token_env));
+        var change = function (create, question) {
+          if (question && !window.confirm(question)) return;
+          send("api/mcp/token", { create: create }).then(function (answer) {
+            shown = answer.ok && answer.token ? answer.token : null;
+            toast(answer.ok ? ui.saved : ui.save_failed);
+            draw();
+          });
+        };
+        var buttons = h("div", { class: "actions", style: "margin-top:12px" },
+          h("button", { type: "button", class: "btn", text: m.token ? ui.mcp_token_replace : ui.mcp_token_new, hidden: !m.writable, on: { click: function () { change(true, m.token ? ui.mcp_token_replace_confirm : null); } } }));
+        if (m.token) buttons.appendChild(h("button", { type: "button", class: "btn", text: ui.mcp_token_remove, hidden: !m.writable, on: { click: function () { change(false, ui.mcp_token_remove_confirm); } } }));
+        token.appendChild(buttons);
+        body.appendChild(token);
+      }).catch(function () {});
+    };
+    draw();
+    return card;
+  }
+
+  /* An assistant sent someone here to ask whether it may read nbuddyn. */
+  function renderConnect(id) {
+    var ui = state.report.ui, view = $("view-connect");
+    if (state.connecting === id) return;
+    state.connecting = id;
+    var leave = function () { state.connecting = null; location.hash = "#/overview"; };
+    get("api/connect?id=" + id).then(function (ask) {
+      var allow = h("button", { type: "button", class: "btn primary", text: ui.connect_allow });
+      var deny = h("button", { type: "button", class: "btn", text: ui.connect_deny });
+      var answer = function (yes) {
+        allow.disabled = deny.disabled = true;
+        send("api/connect", { id: id, allow: yes }).then(function (result) {
+          if (result.redirect) return void (location.href = result.redirect);
+          toast(ui.connect_gone);
+          leave();
+        });
+      };
+      allow.addEventListener("click", function () { answer(true); });
+      deny.addEventListener("click", function () { answer(false); });
+      var admin = state.me && state.me.role === "admin";
+      allow.hidden = !admin;
+      fill(view, h("div", "card consent",
+        h("h1", null, ask.client + " " + ui.connect_title),
+        h("p", null, ui.connect_text),
+        admin ? null : h("div", "notice", ui.connect_admin),
+        h("p", "back", ui.connect_back + " " + ask.host),
+        h("div", "actions", allow, deny)));
+    }).catch(function () {
+      fill(view, h("div", "card consent", h("p", null, ui.connect_gone),
+        h("div", "actions", h("button", { type: "button", class: "btn", text: ui.nav_overview, on: { click: leave } }))));
+    });
+  }
+
   /* Who can come in, and with what role. */
   function usersCard(ui) {
     var card = h("div", "card", h("h2", null, ui.users)), body = h("div", null, h("div", "skcard", h("span", { class: "sk", style: "height:16px" }), h("span", { class: "sk", style: "width:70%;height:16px" })));
@@ -1468,6 +1575,7 @@
       form.appendChild(h("div", "card", h("h2", null, ui.backup),
         h("div", { class: "field" }, h("a", { class: "btn", href: at("api/export/history"), download: "" }, icon("download"), ui.download_backup), h("div", "help", ui.backup_help))));
       form.appendChild(policyCard(ui));
+      form.appendChild(mcpCard(ui));
       if (state.me && !state.me.open) { form.appendChild(usersCard(ui)); form.appendChild(auditCard(ui)); }
       form.appendChild(h("div", "card", h("h2", null, ui.sec_about), about, h("p", { class: "hint", style: "margin:0;padding:0 18px 16px", text: (s.secrets_key === "data" ? ui.secrets_data_help + " " : "") + ui.read_only })));
       form.appendChild(h("div", "savebar", status, save));
@@ -1545,10 +1653,14 @@
     view = VIEWS.indexOf(view) >= 0 ? view : "overview";
     var changed = view !== state.view;
     state.view = view;
+    var ask = (location.hash.match(/^#\/connect\/([0-9a-f]+)/) || [])[1];
+    if (ask) state.view = "connect";
     VIEWS.forEach(function (v) { $("view-" + v).hidden = v !== state.view; });
+    $("view-connect").hidden = !ask;
     state.busy = false;
     if (!state.report) return;
     renderChrome();
+    if (ask) { $("where").textContent = ""; return renderConnect(ask); }
     if (state.view === "history") renderHistory();
     if (state.view === "settings" && state.me && state.me.role !== "admin") return void (location.hash = "#/overview");
     if (state.view === "settings") renderSettings();
@@ -1649,9 +1761,14 @@
     resizing = setTimeout(function () { if (state.report && state.view === "history") renderHistory(); }, 150);
   });
 
+  /* Someone sent here by an assistant may have to sign in first: keep where they were going. */
+  var asked = (location.hash.match(/^#\/connect\/[0-9a-f]+/) || [])[0];
+  if (asked) store("nbuddyn.connect", asked);
   function start() {
     return get("api/me").then(function (me) {
       state.me = me;
+      var kept = stored("nbuddyn.connect");
+      if (kept) { store("nbuddyn.connect", ""); if (location.hash !== kept) location.hash = kept; }
       $("app").hidden = false;
       show();
       return load().then(show);

@@ -26,13 +26,18 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 pub async fn post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
-    let Some(token) = state.mcp_token.as_deref() else {
+    if !state.mcp_on().await {
         return StatusCode::NOT_FOUND.into_response();
-    };
-    if !token_matches(&headers, token) {
+    }
+    if !allowed(&state, &headers).await {
+        // Says where an assistant can sign in to get a token of its own.
+        let hint = format!(
+            r#"Bearer realm="nbuddyn", resource_metadata="{}/.well-known/oauth-protected-resource""#,
+            crate::oauth::base_url(&state, &headers)
+        );
         return (
             StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, r#"Bearer realm="nbuddyn""#)],
+            [(header::WWW_AUTHENTICATE, hint)],
             "401",
         )
             .into_response();
@@ -76,12 +81,36 @@ pub async fn other() -> Response {
     (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response()
 }
 
-fn token_matches(headers: &HeaderMap, token: &str) -> bool {
+/// Three things open the endpoint: the token from the environment, the token
+/// made in Settings, and the token of an assistant that signed in.
+async fn allowed(state: &AppState, headers: &HeaderMap) -> bool {
+    let Some(given) = bearer(headers) else {
+        return false;
+    };
+    if state
+        .mcp_token
+        .as_deref()
+        .is_some_and(|token| web::constant_time_eq(given.as_bytes(), token.as_bytes()))
+    {
+        return true;
+    }
+    let made_here = state.saved.read().await.mcp_token_hash.clone();
+    if made_here.is_some_and(|hash| {
+        web::constant_time_eq(crate::auth::token_hash(given).as_bytes(), hash.as_bytes())
+    }) {
+        return true;
+    }
+    state.connect.allows(given, web::now())
+}
+
+/// The token a client sent, if it sent one the way MCP asks for.
+fn bearer(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .is_some_and(|given| web::constant_time_eq(given.trim().as_bytes(), token.as_bytes()))
+        .map(str::trim)
+        .filter(|given| !given.is_empty())
 }
 
 fn failure(id: Value, code: i64, text: &str) -> Value {
@@ -330,25 +359,16 @@ mod tests {
     }
 
     #[test]
-    fn only_the_exact_bearer_token_is_accepted() {
+    fn a_token_counts_only_as_a_bearer_token() {
         let with = |value: &str| {
             let mut headers = HeaderMap::new();
             headers.insert(header::AUTHORIZATION, value.parse().unwrap());
             headers
         };
-        assert!(token_matches(
-            &with("Bearer a-long-secret-token"),
-            "a-long-secret-token"
-        ));
-        assert!(!token_matches(
-            &with("Bearer a-long-secret-toke"),
-            "a-long-secret-token"
-        ));
-        assert!(!token_matches(
-            &with("Basic a-long-secret-token"),
-            "a-long-secret-token"
-        ));
-        assert!(!token_matches(&HeaderMap::new(), "a-long-secret-token"));
+        assert_eq!(bearer(&with("Bearer a-long-token ")), Some("a-long-token"));
+        assert_eq!(bearer(&with("Basic a-long-token")), None);
+        assert_eq!(bearer(&with("Bearer ")), None);
+        assert_eq!(bearer(&HeaderMap::new()), None);
     }
 
     #[test]
