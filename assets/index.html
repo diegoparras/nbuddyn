@@ -1698,7 +1698,7 @@
         form.appendChild(card);
       });
       var about = h("dl", "kv");
-      [[ui.env_mcp, s.mcp ? ui.on : ui.off]].concat(s.secrets_key ? [[ui.env_secrets, ui["secrets_" + s.secrets_key]]] : []).concat([[ui.env_n8n, state.report.n8n_version || ui.version_unknown], [ui.env_tested, s.tested_with], ["nbuddyn", s.version]]).forEach(function (row) {
+      [[ui.env_mcp, s.mcp ? ui.on : ui.off]].concat(s.secrets_key ? [[ui.env_secrets, ui["secrets_" + s.secrets_key]]] : []).concat([[ui.env_n8n, (state.report.n8n_version || ui.version_unknown) + (function (u) { return !u ? "" : " · " + (u === "current" ? ui.update_current : u === "failed" ? ui.update_failed : ui.update_newer + " " + u); })(state.report.n8n_update)], [ui.env_tested, s.tested_with], ["nbuddyn", s.version]]).forEach(function (row) {
         about.appendChild(h("dt", null, row[0]));
         about.appendChild(h("dd", null, row[1]));
       });

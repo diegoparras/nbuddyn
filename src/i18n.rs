@@ -852,6 +852,9 @@ pub struct UiText {
     pub help_check_updates: &'static str,
     pub env_n8n: &'static str,
     pub version_unknown: &'static str,
+    pub update_current: &'static str,
+    pub update_failed: &'static str,
+    pub update_newer: &'static str,
     pub env_tested: &'static str,
     pub sec_alerts: &'static str,
     pub alerts_help: &'static str,
@@ -1919,6 +1922,21 @@ pub fn ui_text(lang: Lang) -> UiText {
             "not known",
             "no se sabe",
             "não se sabe",
+        ),
+        update_current: lang.pick(
+            "up to date",
+            "al día",
+            "em dia",
+        ),
+        update_failed: lang.pick(
+            "could not ask for newer versions",
+            "no se pudo consultar si hay versiones nuevas",
+            "não foi possível consultar se há versões novas",
+        ),
+        update_newer: lang.pick(
+            "newer one out:",
+            "hay una más nueva:",
+            "há uma mais nova:",
         ),
         env_tested: lang.pick(
             "Tested with n8n",

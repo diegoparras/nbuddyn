@@ -533,7 +533,13 @@ async fn scan_once(
         .filter(|_| check_updates)
     {
         let latest = state.updates.latest(installed, scan.generated_at).await;
-        if let Some((severity, newer)) = latest.and_then(|l| updates::verdict(installed, l)) {
+        let verdict = latest.and_then(|l| updates::verdict(installed, l));
+        scan.n8n_update = Some(match (latest, verdict) {
+            (None, _) => "failed".to_owned(),
+            (Some(_), None) => "current".to_owned(),
+            (Some(_), Some((_, newer))) => updates::show(newer),
+        });
+        if let Some((severity, newer)) = verdict {
             scan.findings.push(radar::Finding {
                 check: "n8n_outdated",
                 severity,
@@ -653,6 +659,7 @@ fn evaluate(snapshot: &Snapshot) -> Scan {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
         n8n_version: running_version(snapshot),
+        n8n_update: None,
         inventory: Inventory {
             workflows: snapshot.workflows.len(),
             active: snapshot.workflows.iter().filter(|w| w.active).count(),

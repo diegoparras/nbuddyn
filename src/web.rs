@@ -29,6 +29,9 @@ pub struct Scan {
     pub generated_at: u64,
     /// The n8n version that is running, when it could be told.
     pub n8n_version: Option<String>,
+    /// What the check for newer versions said, when it is turned on:
+    /// `current`, `failed`, or the newer version.
+    pub n8n_update: Option<String>,
     pub inventory: Inventory,
     pub findings: Vec<Finding>,
     pub cluster: Option<Cluster>,
@@ -773,6 +776,9 @@ struct Report {
     /// The n8n version that is running, when it could be told.
     #[serde(skip_serializing_if = "Option::is_none")]
     n8n_version: Option<String>,
+    /// `current`, `failed` or a newer version; absent when nobody asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n8n_update: Option<String>,
     inventory: Inventory,
     /// Queue, Redis and cluster members; absent when no Redis is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1168,6 +1174,7 @@ fn compose_report(
         lights,
         totals,
         n8n_version: scan.n8n_version.clone(),
+        n8n_update: scan.n8n_update.clone(),
         inventory: scan.inventory,
         cluster,
         cluster_error,
@@ -2141,6 +2148,7 @@ mod tests {
         Scan {
             generated_at: 1,
             n8n_version: None,
+            n8n_update: None,
             inventory: Inventory::default(),
             findings,
             cluster: None,
