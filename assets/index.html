@@ -533,6 +533,13 @@
     });
     // The company's own sign-in, when nbuddyn was given one.
     fetch("api/auth").then(function (res) { return res.json(); }).then(function (options) {
+      // Someone who never chose a language gets the one nbuddyn is set to,
+      // not whatever their browser happens to prefer.
+      if (!stored("nbuddyn.lang") && options.lang && options.lang !== state.lang && LOGIN[options.lang]) {
+        state.lang = options.lang;
+        box.hidden = true;
+        return showLogin();
+      }
       if (!options.sso) return;
       form.insertBefore(h("a", { class: "btn primary", href: "auth/oidc/start", text: t.sso.replace("{name}", options.sso) }), form.children[2]);
       form.insertBefore(h("div", { class: "eyebrow", style: "margin:4px 0", text: t.or }), form.children[3]);

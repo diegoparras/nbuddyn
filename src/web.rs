@@ -1424,11 +1424,14 @@ struct AuthOptions {
     /// What the single sign-on button says. Absent when there is none.
     #[serde(skip_serializing_if = "Option::is_none")]
     sso: Option<String>,
+    /// The language nbuddyn is set to, for someone who has not chosen one.
+    lang: &'static str,
 }
 
 async fn auth_options(State(state): State<Arc<AppState>>) -> Json<AuthOptions> {
     Json(AuthOptions {
         sso: state.oidc.as_ref().map(|o| o.config.name.clone()),
+        lang: state.effective().await.lang.code(),
     })
 }
 
