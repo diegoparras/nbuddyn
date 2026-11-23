@@ -270,6 +270,21 @@ pub fn scan(snapshot: &Snapshot) -> Vec<Finding> {
     findings
 }
 
+/// What n8n calls the credentials it makes for its own assistant.
+const OWN_CREDENTIAL_PREFIX: &str = "n8n Assistant ";
+
+/// Drops unused-credential findings about credentials n8n made for itself:
+/// nobody chose to create them, so they are noise on every n8n 3.
+pub fn drop_own_credentials(findings: &mut Vec<Finding>) {
+    findings.retain(|f| {
+        f.check != "unused_credential"
+            || !f
+                .detail
+                .as_deref()
+                .is_some_and(|d| d.starts_with(OWN_CREDENTIAL_PREFIX))
+    });
+}
+
 /// Applies the team's own rules: a check they made more or less severe takes
 /// that severity, and a check they turned off is dropped.
 pub fn apply_policy(
@@ -624,6 +639,37 @@ mod tests {
         assert_eq!(
             seen,
             vec![("no_mfa", Severity::High), ("env_access", Severity::Low)]
+        );
+    }
+
+    #[test]
+    fn credentials_n8n_made_for_itself_are_left_out() {
+        let credential = |check: &'static str, name: &str| Finding {
+            check,
+            severity: Severity::Low,
+            workflow: None,
+            node: None,
+            detail: Some(format!("{name} (anthropicApi)")),
+            active: None,
+            workflow_id: None,
+            subject: Some(name.to_owned()),
+        };
+        let mut findings = vec![
+            credential("unused_credential", "n8n Assistant model"),
+            credential("unused_credential", "Stripe (old key)"),
+            credential("hardcoded_secret", "n8n Assistant model"),
+        ];
+        drop_own_credentials(&mut findings);
+        let left: Vec<_> = findings
+            .iter()
+            .map(|f| (f.check, f.subject.as_deref().unwrap()))
+            .collect();
+        assert_eq!(
+            left,
+            vec![
+                ("unused_credential", "Stripe (old key)"),
+                ("hardcoded_secret", "n8n Assistant model")
+            ]
         );
     }
 

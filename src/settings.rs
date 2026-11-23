@@ -124,6 +124,9 @@ pub struct Saved {
     /// Whether accepting a finding needs a reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accept_needs_note: Option<bool>,
+    /// Whether unused credentials n8n made for itself are reported too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_own_credentials: Option<bool>,
     /// Days an acceptance lasts before the finding comes back for another
     /// look. 0 or absent: for as long as the finding does.
     #[serde(default, skip_serializing_if = "Option::is_none")]

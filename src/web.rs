@@ -1723,6 +1723,7 @@ struct PolicyView {
     accept_needs_note: bool,
     /// 0 means an acceptance lasts as long as the finding.
     accept_days: u32,
+    show_own_credentials: bool,
 }
 
 #[derive(Deserialize)]
@@ -1733,6 +1734,8 @@ struct PolicyForm {
     accept_needs_note: bool,
     #[serde(default)]
     accept_days: u32,
+    #[serde(default)]
+    show_own_credentials: bool,
 }
 
 #[derive(Deserialize)]
@@ -1768,6 +1771,7 @@ async fn policy_view(
             .collect(),
         accept_needs_note: saved.accept_needs_note.unwrap_or(false),
         accept_days: saved.accept_days.unwrap_or(0),
+        show_own_credentials: saved.show_own_credentials.unwrap_or(false),
     })
     .into_response()
 }
@@ -1796,6 +1800,7 @@ async fn policy_save(
         }
         next.accept_needs_note = Some(form.accept_needs_note);
         next.accept_days = Some(form.accept_days);
+        next.show_own_credentials = Some(form.show_own_credentials);
         Ok(next)
     })
     .await

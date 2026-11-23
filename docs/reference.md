@@ -210,6 +210,8 @@ What matters is not the same everywhere, so **Settings → Your rules** lets a t
 - how severe each check is here: more, less, or off. A company can make "users without
   two-factor" urgent and turn "unused credentials" off;
 - whether accepting a finding needs a written reason;
+- whether the credentials n8n 3 makes for its own assistant count as unused (they do
+  not, unless you say so);
 - how many days an acceptance lasts before the finding comes back for another look.
 
 The score, the lights, the alerts and the audit log all follow those rules.

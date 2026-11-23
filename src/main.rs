@@ -509,7 +509,16 @@ async fn scan_once(
     *runtime.cluster_error.write().await = cluster_error;
     snapshot.runners = runners::probe_all(&instance.runners).await;
     let mut scan = evaluate(&snapshot);
-    let policy = state.saved.read().await.policy.clone();
+    let (policy, show_own) = {
+        let saved = state.saved.read().await;
+        (
+            saved.policy.clone(),
+            saved.show_own_credentials.unwrap_or(false),
+        )
+    };
+    if !show_own {
+        radar::drop_own_credentials(&mut scan.findings);
+    }
     radar::apply_policy(&mut scan.findings, &policy);
     let mut events = Vec::new();
 

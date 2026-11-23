@@ -7,6 +7,8 @@ while the first number is 0, the second one changes when something you rely on m
 
 - The navigation and the controls live behind one menu button, so nothing is cut off on
   narrow screens.
+- Unused credentials no longer count the ones n8n 3 makes for its own assistant.
+  **Settings → Your rules** can bring them back.
 - Settings sections fold, and the page remembers which ones you closed.
 - The sign-in page opens in the instance's language.
 - New documentation: a README in English, Spanish and Portuguese, step-by-step

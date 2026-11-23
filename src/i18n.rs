@@ -488,9 +488,9 @@ pub fn advice(lang: Lang, check: &str) -> &'static str {
             "Deixam de funcionar se o acesso ao ambiente estiver bloqueado, e podem expor chaves do servidor se não estiver.",
         ),
         "unused_credential" => lang.pick(
-            "Delete the ones nothing else needs. Credentials used by n8n itself, such as the assistant's, also appear here.",
-            "Borrá las que nada más necesite. Las que usa el propio n8n, como las del asistente, también aparecen acá.",
-            "Exclua as que nada mais precisa. As usadas pelo próprio n8n, como as do assistente, também aparecem aqui.",
+            "Delete the ones nothing else needs.",
+            "Borrá las que nada más necesite.",
+            "Exclua as que nada mais precisa.",
         ),
         "command_execution" => lang.pick(
             "Expected for some workflows. Make sure only trusted people can edit them.",
@@ -753,6 +753,10 @@ pub struct UiText {
     pub set_accept_needs_note: &'static str,
     pub accept_needs_note_true: &'static str,
     pub accept_needs_note_false: &'static str,
+    pub set_own_credentials: &'static str,
+    pub own_credentials_false: &'static str,
+    pub own_credentials_true: &'static str,
+    pub help_own_credentials: &'static str,
     pub set_accept_days: &'static str,
     pub help_accept_days: &'static str,
     pub note_required: &'static str,
@@ -1452,6 +1456,26 @@ pub fn ui_text(lang: Lang) -> UiText {
             "A reason is optional",
             "El motivo es opcional",
             "O motivo é opcional",
+        ),
+        set_own_credentials: lang.pick(
+            "Credentials n8n makes for itself",
+            "Credenciales que n8n crea para sí mismo",
+            "Credenciais que o n8n cria para si mesmo",
+        ),
+        own_credentials_false: lang.pick(
+            "Leave them out of unused credentials",
+            "No contarlas como credenciales sin uso",
+            "Não contá-las como credenciais sem uso",
+        ),
+        own_credentials_true: lang.pick(
+            "Report them like any other",
+            "Informarlas como cualquier otra",
+            "Informá-las como qualquer outra",
+        ),
+        help_own_credentials: lang.pick(
+            "n8n 3 creates credentials for its assistant, named \"n8n Assistant ...\". No workflow uses them, and nobody chose to create them.",
+            "n8n 3 crea credenciales para su asistente, llamadas \"n8n Assistant ...\". Ningún workflow las usa, y nadie eligió crearlas.",
+            "O n8n 3 cria credenciais para o assistente, chamadas \"n8n Assistant ...\". Nenhum workflow as usa, e ninguém escolheu criá-las.",
         ),
         set_accept_days: lang.pick(
             "Days an acceptance lasts",

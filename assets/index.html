@@ -1273,13 +1273,16 @@
       var needs = h("select", { id: "policy_note" });
       [["false", ui.accept_needs_note_false], ["true", ui.accept_needs_note_true]].forEach(function (o) { needs.appendChild(h("option", { value: o[0], text: o[1] })); });
       needs.value = String(policy.accept_needs_note);
+      var own = h("select", { id: "policy_own" });
+      [["false", ui.own_credentials_false], ["true", ui.own_credentials_true]].forEach(function (o) { own.appendChild(h("option", { value: o[0], text: o[1] })); });
+      own.value = String(policy.show_own_credentials);
       var days = h("input", { type: "number", id: "policy_days", min: 0, max: 3650, value: policy.accept_days });
       var save = h("button", { type: "button", class: "btn", text: ui.save });
       save.addEventListener("click", function () {
         var chosen = {};
         Object.keys(selects).forEach(function (check) { chosen[check] = selects[check].value; });
         save.disabled = true;
-        send("api/policy", { levels: chosen, accept_needs_note: needs.value === "true", accept_days: Number(days.value) || 0 }).then(function (answer) {
+        send("api/policy", { levels: chosen, accept_needs_note: needs.value === "true", accept_days: Number(days.value) || 0, show_own_credentials: own.value === "true" }).then(function (answer) {
           save.disabled = false;
           state.busy = false;
           toast(answer.ok ? ui.saved : ui.invalid);
@@ -1291,6 +1294,7 @@
         tableOf([[ui.what_to_do === undefined ? "" : ui.nav_findings], [ui.col_status, "num"]], rows),
         h("div", "field", h("label", { htmlFor: "policy_note", text: ui.set_accept_needs_note }), needs),
         h("div", "field", h("label", { htmlFor: "policy_days", text: ui.set_accept_days }), days, h("div", "help", ui.help_accept_days)),
+        h("div", "field", h("label", { htmlFor: "policy_own", text: ui.set_own_credentials }), own, h("div", "help", ui.help_own_credentials)),
         h("div", "field", save)));
     }).catch(function () {});
     return card;
